@@ -1,3 +1,13 @@
 
 *.pyc
+*.xml
+*.iml
+__pycache__/
+*.pyo
+*.pyd
 model/DRUNet.zip
+weights/
+runs/
+style_track/
+train.sh
+Unsupervised Domain Adaptation using Soft-Labeled Contrastive Learning with Reversed Monte Carlo Method for Cardiac Image Segmentation.pdf

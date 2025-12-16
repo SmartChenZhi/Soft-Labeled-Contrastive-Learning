@@ -33,7 +33,7 @@ class DataGenerator(data.Dataset):
         self._vert = vert
         self._zoom = zoom
         self._percent = percent
-        self._mnmx = load_mnmx_csv(modality, percent)
+        # self._mnmx = load_mnmx_csv(modality, percent)
 
         num_dict = {'t': {'CT': np.setdiff1d(config.MMWHS_CT_S_TRAIN_SET, config.MMWHS_CT_T_VALID_SET),
                           'MR': np.setdiff1d(config.MMWHS_MR_S_TRAIN_SET, config.MMWHS_MR_T_VALID_SET if val_num == 0
@@ -90,10 +90,17 @@ class DataGenerator(data.Dataset):
         i = index % self._len
         assert_match(self._image_files[i], self._mask_files[i])
         img, mask = load_raw_data_mmwhs(self._image_files[i], self._mask_files[i])
-        m = re.search('img\d+_', self._image_files[i])
-        img_name = m.group()[:-1]
-        vmin, vmax = self._mnmx.loc[img_name].min99, self._mnmx.loc[img_name].max99
-        img = np.clip((np.array(img, np.float32) - vmin) / (vmax - vmin), 0, 1)
+        # m = re.search('img\d+_', self._image_files[i])
+        # img_name = m.group()[:-1]
+        # vmin, vmax = self._mnmx.loc[img_name].min99, self._mnmx.loc[img_name].max99
+        # img = np.clip((np.array(img, np.float32) - vmin) / (vmax - vmin), 0, 1)
+        
+        # Calculate min/max from the image itself
+        img = np.array(img, np.float32)
+        vmin = np.percentile(img, 0.5)
+        vmax = np.percentile(img, 99.5)
+        img = np.clip((img - vmin) / (vmax - vmin + 1e-8), 0, 1)
+
         aug_img, aug_mask = img, mask
         if self._augmentation:
             aug_mask = np.expand_dims(aug_mask, axis=-1)

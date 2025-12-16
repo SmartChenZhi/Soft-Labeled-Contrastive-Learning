@@ -5,7 +5,7 @@ from tqdm import tqdm
 
 import torch
 
-from dataset.data_generator_mscmrseg import prepare_dataset
+#from dataset.data_generator_mscmrseg import prepare_dataset
 from dataset.data_generator_mmwhs import prepare_dataset as prepare_dataset_mmwhs
 from dataset.data_generator_mmwhs_raw import prepare_dataset as prepare_dataset_mmwhs_raw
 from utils.lr_adjust import adjust_learning_rate, adjust_learning_rate_custom
@@ -64,7 +64,8 @@ class Trainer_baseline(Trainer):
     @timer.timeit
     def prepare_dataloader(self):
         if self.dataset == 'mscmrseg':
-            self.scratch, self.scratch_raw, self.content_loader, self.style_loader = prepare_dataset(self.args)
+            pass
+            #self.scratch, self.scratch_raw, self.content_loader, self.style_loader = prepare_dataset(self.args)
         elif self.dataset == 'mmwhs':
             print('importing raw data...')
             if self.args.raw:

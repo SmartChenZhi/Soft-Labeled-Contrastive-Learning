@@ -21,6 +21,7 @@ from utils.metrics import *
 class Trainer_BCL(Trainer_baseline):
     def __init__(self):
         super().__init__()
+        self.start_round = 0
         if self.args.config is not None:
             with open(self.args.config, 'r') as f:
                 config = yaml.load(f, Loader=yaml.FullLoader)
@@ -34,7 +35,6 @@ class Trainer_BCL(Trainer_baseline):
             self.args = config
             message = show_config(config)
             print(message)
-            self.start_round = 0
 
     def add_additional_arguments(self):
         """
@@ -48,6 +48,10 @@ class Trainer_BCL(Trainer_baseline):
         self.parser.add_argument('-round', help='The maximum number of rounds.', type=int, default=10)
         self.parser.add_argument('-cb_prop', help='the basic probability', default=.1)
         self.parser.add_argument('-thres_inc', help='the increment of the threshold.', default=0)
+        self.parser.add_argument('-plabel', type=str, default='./pseudo_labels')
+        self.parser.add_argument('-note', type=str, default='BCL')
+        self.parser.add_argument('-lamb_metric1', type=float, default=1.0)
+        self.parser.add_argument('-lamb_metric2', type=float, default=1.0)
 
     @timer.timeit
     def get_arguments_apdx(self):
@@ -258,16 +262,16 @@ class Trainer_BCL(Trainer_baseline):
             loss_metric = loss_metric / counter
             loss = loss_seg + loss_e + loss_metric
 
-            results.loss_source = results.loss_source.append(loss_s.item())
-            results.loss_target = results.loss_target.append(loss_t.item())
-            results.loss_entropy = results.loss_entropy.append(loss_e.item())
-            results.loss_metric = results.loss_metric.append(loss_metric.item())
+            results.loss_source.append(loss_s.item())
+            results.loss_target.append(loss_t.item())
+            results.loss_entropy.append(loss_e.item())
+            results.loss_metric.append(loss_metric.item())
             loss.backward()
             self.opt.step()
 
         results.loss_source = sum(results.loss_source) / len(results.loss_source)
         results.loss_target = sum(results.loss_target) / len(results.loss_target)
-        results.loss_entropy = sum(results.loss_entropy) / len(results.loss_target)
+        results.loss_entropy = sum(results.loss_entropy) / len(results.loss_entropy)
         results.loss_metric = sum(results.loss_metric) / len(results.loss_metric)
 
         return results
@@ -275,10 +279,13 @@ class Trainer_BCL(Trainer_baseline):
     @timer.timeit
     def train(self):
         for r in range(self.start_round, self.args.round):
-            self.cb_thres = self.gene_thres(
-                self.args.cb_prop + self.args.thres_inc * r)  # thresholds for all the classes
-            self.save_pred(r)
-            self.plabel_path = os.path.join(self.args.plabel, self.args.note, str(r))
+            if self.dataset == 'mscmrseg':
+                self.cb_thres = self.gene_thres(
+                    self.args.cb_prop + self.args.thres_inc * r)
+                self.save_pred(r)
+                self.plabel_path = os.path.join(self.args.plabel, self.args.note or self.apdx, str(r))
+            else:
+                self.cb_thres = None
 
             self.prepare_optimizers()
             for epoch in tqdm(range(self.start_epoch, self.args.epochs)):
@@ -290,9 +297,9 @@ class Trainer_BCL(Trainer_baseline):
 
                 msg = f'Epoch = {epoch + 1:6d}/{self.args.epochs:6d}'
                 if self.args.train_with_s:
-                    msg += f', loss_seg = {train_results["seg_s"]:.4f}'
+                    msg += f', loss_seg_s = {train_results["loss_source"]:.4f}'
                 if self.args.train_with_t:
-                    msg += f', loss_seg_t = {train_results["seg_t"]: .4f}'
+                    msg += f', loss_seg_t = {train_results["loss_target"]:.4f}'
                 print(msg)
                 results = self.eval(modality='target', phase='valid')
                 lge_dice = np.round((results['dc'][0] + results['dc'][2] + results['dc'][4]) / 3, 3)
@@ -312,12 +319,12 @@ class Trainer_BCL(Trainer_baseline):
                 if self.args.train_with_s:
                     if self.args.train_with_t:
                         self.writer.add_scalars('Loss Seg',
-                                                {'Source': train_results['seg_s'], 'Target': train_results['seg_t']},
+                                                {'Source': train_results['loss_source'], 'Target': train_results['loss_target']},
                                                 epoch + 1)
                     else:
-                        self.writer.add_scalar('Loss Seg/Source', train_results['seg_s'], epoch + 1)
+                        self.writer.add_scalar('Loss Seg/Source', train_results['loss_source'], epoch + 1)
                 else:
-                    self.writer.add_scalar('Loss Seg/Target', train_results['seg_t'], epoch + 1)
+                    self.writer.add_scalar('Loss Seg/Target', train_results['loss_target'], epoch + 1)
                 self.writer.add_scalar('LR/Seg_LR', self.opt.param_groups[0]['lr'], epoch + 1)
 
                 if tobreak:

@@ -409,7 +409,10 @@ class Evaluator:
                     'MR': {'valid': config.MMWHS_MR_T_VALID_SET if val_num == 0 else config.MMWHS_MR_T_VALID_SET1,
                            'test': [test_fold1, test_fold2]}}
         uncertainty_list, uncertainty_slice_list = [], []
-        mnmx = load_mnmx_csv(modality, percent)
+        try:
+            mnmx = load_mnmx_csv(modality, percent)
+        except FileNotFoundError:
+            mnmx = None
         with torch.no_grad():
             seg_model.eval()
             if weight_dir is not None:
@@ -470,8 +473,13 @@ class Evaluator:
                 for img_path, mask_path in zip(img_paths, mask_paths):
                     if self._raw:
                         vol, _ = load_raw_data_mmwhs(img_path)
-                        img_name = f'img{sample_num}'
-                        vmin, vmax = mnmx.loc[img_name].min99, mnmx.loc[img_name].max99
+                        if mnmx is None:
+                            img = np.array(vol, np.float32)
+                            vmin = np.percentile(img, 0.5)
+                            vmax = np.percentile(img, 99.5)
+                        else:
+                            img_name = f'img{sample_num}'
+                            vmin, vmax = mnmx.loc[img_name].min99, mnmx.loc[img_name].max99
                         vol = np.clip((np.array(vol, np.float32) - vmin) / (vmax - vmin), 0, 1)
                         vol = (vol * 255).astype(np.uint8)
                         vol = np.stack([vol, vol, vol], axis=-1)

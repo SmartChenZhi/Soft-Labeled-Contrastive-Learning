@@ -20,7 +20,7 @@ def jaccard_loss(true, logits, eps=1e-7):
     """
     num_classes = logits.shape[1]
     if num_classes == 1:
-        true_1_hot = torch.eye(num_classes + 1)[true.squeeze(1)]
+        true_1_hot = torch.eye(num_classes + 1, device=true.device)[true.squeeze(1)]
         true_1_hot = torch.moveaxis(true_1_hot, -1, 1)
         true_1_hot_f = true_1_hot[:, 0:1, :, :]  # background
         true_1_hot_s = true_1_hot[:, 1:2, :, :]  # foreground
@@ -29,7 +29,7 @@ def jaccard_loss(true, logits, eps=1e-7):
         neg_prob = 1 - pos_prob
         probas = torch.cat([pos_prob, neg_prob], dim=1)
     else:
-        true_1_hot = torch.eye(num_classes)[true.squeeze(1)]
+        true_1_hot = torch.eye(num_classes, device=true.device)[true.squeeze(1)]
         true_1_hot = torch.moveaxis(true_1_hot, -1, 1)  # B, C, H, W
         probas = F.softmax(logits, dim=1)
     true_1_hot = true_1_hot.type(logits.type())
@@ -144,18 +144,18 @@ def cosine_similarity_BCL(class_list, label_resize, feature, label2, feature2, n
         if index != 255.:
             fg_mask = ((label_resize == index) * 1).cuda().detach()  # extract the mask for label == index
             # mask out the features correspond to certain class index and calculate the masked average feature
-            prototype = (fg_mask * feature).squeeze().resize(ch, feature_h * feature_w).sum(
+            prototype = (fg_mask * feature).squeeze().reshape(ch, feature_h * feature_w).sum(
                 -1) / fg_mask.sum()
             prototypes[int(index)] = prototype  # (class_num, ch) register the prototypes into the list
 
     # (class_num, feature_h * feature_w) the cosine similarity between each class in one domain and each
     # individual feature in another domain
     cs_map = torch.matmul(F.normalize(prototypes, dim=1),
-                          F.normalize(feature2.squeeze().resize(ch, feature_h * feature_w), dim=0))
+                          F.normalize(feature2.squeeze().reshape(ch, feature_h * feature_w), dim=0))
     # set the value to -1 (smallest in cosine value) when the class index does not overlap in both two domain
     cs_map[cs_map == 0] = -1
     # make sure that label and label2 have the same shape
-    cosine_similarity_map = F.interpolate(cs_map.resize(1, num_class, feature_h, feature_w), size=label2.size()[-2:])
+    cosine_similarity_map = F.interpolate(cs_map.reshape(1, num_class, feature_h, feature_w), size=label2.size()[-2:])
     cosine_similarity_map *= 10
     return cosine_similarity_map
 
@@ -187,10 +187,8 @@ def bidirect_contrastive_loss_BCL(feature_s, label_s, feature_t, label_t, num_cl
     # calculate the similarity map
     cosine_similarity_map = cosine_similarity_BCL(source_list, label_s_resize, feature_s, label_t, feature_t, num_class)
 
-    cross_entropy_weight = torch.zeros(size=(num_class, 1))
-    cross_entropy_weight[overlap_classes] = 1
-    cross_entropy_weight = cross_entropy_weight.cuda()
-    # generate the cross entropy loss where only the overlapping classes are taken into count
+    cross_entropy_weight = torch.zeros(num_class, dtype=torch.float, device=feature_s.device)
+    cross_entropy_weight[overlap_classes] = 1.0
     prototype_loss = torch.nn.CrossEntropyLoss(weight=cross_entropy_weight, ignore_index=255)
 
     # generate the prediction map containing class indices where uncertainty pixels are set to 255
@@ -205,7 +203,7 @@ def bidirect_contrastive_loss_BCL(feature_s, label_s, feature_t, label_t, num_cl
     label_t_resize_new[label_t_resize_new == 255] = masked_target_predicted_resize[label_t_resize_new == 255]
     target_list2 = torch.unique(label_t_resize_new)
 
-    cosine_similarity_map2 = cosine_similarity_BCL(target_list, label_t_resize, feature_t, feature_s, label_s)
+    cosine_similarity_map2 = cosine_similarity_BCL(target_list2, label_t_resize_new, feature_t, label_s, feature_s, num_class)
 
     metric_loss1 = prototype_loss(cosine_similarity_map, label_t)
     metric_loss2 = prototype_loss(cosine_similarity_map2, label_s)
