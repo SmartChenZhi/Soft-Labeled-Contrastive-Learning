@@ -9,4 +9,5 @@ model/DRUNet.zip
 weights/
 runs/
 style_track/
+.vscode/
 Unsupervised Domain Adaptation using Soft-Labeled Contrastive Learning with Reversed Monte Carlo Method for Cardiac Image Segmentation.pdf
