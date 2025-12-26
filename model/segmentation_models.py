@@ -45,7 +45,9 @@ class segmentation_models(nn.Module):
         decoder_output = self.decoder.center(head)
         for i, decoder_block in enumerate(self.decoder.blocks):
             skip = skips[i] if i < len(skips) else None
-            decoder_output = decoder_block(decoder_output, skip)
+            target_height = skip.size(-2) if skip is not None else decoder_output.size(-2) * 2
+            target_width = skip.size(-1) if skip is not None else decoder_output.size(-1) * 2
+            decoder_output = decoder_block(decoder_output, target_height, target_width, skip_connection=skip)
             if self.multilvl and (i == len(self.decoder.blocks) - 2):
                 output_aux = decoder_output
                 output_aux = F.interpolate(output_aux, size=x.size()[2:], mode='bilinear', align_corners=True)
@@ -110,7 +112,9 @@ class segmentation_model_point(segmentation_models):
         decoder_output = self.decoder.center(head)
         for i, decoder_block in enumerate(self.decoder.blocks):
             skip = skips[i] if i < len(skips) else None
-            decoder_output = decoder_block(decoder_output, skip)
+            target_height = skip.size(-2) if skip is not None else decoder_output.size(-2) * 2
+            target_width = skip.size(-1) if skip is not None else decoder_output.size(-1) * 2
+            decoder_output = decoder_block(decoder_output, target_height, target_width, skip_connection=skip)
             if i == len(self.decoder.blocks) - 2:
                 output_aux = decoder_output
                 output_aux = F.interpolate(output_aux, size=x.size()[2:], mode='bilinear', align_corners=True)

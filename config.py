@@ -1,7 +1,7 @@
 import numpy as np
 
 MODEL = 'dr_unet'
-BATCH_SIZE = 16
+BATCH_SIZE = 32
 EVAL_BS = 32
 NUM_WORKERS = 8
 
@@ -22,7 +22,7 @@ RANDOM_SEED = 1234
 INPUT_SIZE = 224
 DATA_DIRECTORY = "../../data/mscmrseg/origin"
 RAW_DATA_DIRECTORY = "../../data/mscmrseg/raw_data"
-EPOCHS = 40
+EPOCHS = 1000
 WARMUP_EPOCHS = EPOCHS
 EPS_ITERS = 5
 
