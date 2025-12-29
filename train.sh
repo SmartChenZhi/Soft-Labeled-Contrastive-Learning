@@ -6,6 +6,9 @@ CUDA_VISIBLE_DEVICES=1 python /data6/smartchen/code/SLCL/train_baseline.py \
   -train_with_s \
   -train_with_t
 
+python pretrain_RAIN.py -raw -task pretrain_RAIN \
+ -data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA-master
+
 # SLCL
 python train_SLCL.py \
   -raw \
@@ -14,6 +17,15 @@ python train_SLCL.py \
   -train_with_s \
   -train_with_t \
 
+python train_MCCL.py \
+  -lr 8e-4 -raw -train_with_s -train_with_t \
+  -CNR \
+  -CNR_w 4e-5 \
+  -bs 32 \
+  -clda \
+  -raw \
+  -backbone resnet50 \
+  -data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA-master
 
 CUDA_VISIBLE_DEVICES=1 python /data6/smartchen/code/SLCL/train_BCL.py \
   -raw -backbone resnet50 \
