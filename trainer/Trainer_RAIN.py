@@ -43,9 +43,9 @@ class Trainer_RAIN(Trainer_baseline):
         self.parser.add_argument('-consist_w', help='the weight for the consistent loss', type=float,
                                  default=config.WEIGHT_CONSIST)
         """weight directory"""
-        self.parser.add_argument('-decoder', type=str, default='pretrained/decoder_iter_100000.pth')
-        self.parser.add_argument('-fc_encoder', type=str, default='pretrained/fc_encoder_iter_100000.pth')
-        self.parser.add_argument('-fc_decoder', type=str, default='pretrained/fc_decoder_iter_100000.pth')
+        self.parser.add_argument('-decoder', type=str, default='pretrained/best_decoder.pt')
+        self.parser.add_argument('-fc_encoder', type=str, default='pretrained/best_fc_encoder.pt')
+        self.parser.add_argument('-fc_decoder', type=str, default='pretrained/best_fc_decoder.pt')
         """choose slice(s), only for one-shot and few-shot training"""
         # pat_id 10, 13, 33, 38, 41
         self.parser.add_argument('-pat_id', help='The patient id to choose.', type=int, default=-1)
