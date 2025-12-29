@@ -75,7 +75,8 @@ class Evaluator:
                                 ifasd=True, save_csv=False, save_hd=False, weight_dir=None, bs=32, toprint=True,
                                 lge_train_test_split=None, cal_unctnty=False, watch_pat=None, klc=True,
                                 ifhd95=True, pred_index=0, fold_num=0, split=0, val_num=0, crop_size=224,
-                                spacing=1, percent=100, save_pred=False, volume=False, save_norm=False, verbose=False):
+                                spacing=1, percent=100, save_pred=False, volume=False, save_norm=False, verbose=False,
+                                save_dir='prediction/eval_out'):
         if self._dataset == 'mscmrseg':
             measures = self.evaluate_single_dataset_mscmrseg(seg_model, model_name=model_name, modality=modality,
                                                              phase=phase, ifhd=ifhd, ifasd=ifasd,
@@ -84,7 +85,7 @@ class Evaluator:
                                                              cal_unctnty=cal_unctnty, watch_pat=watch_pat, klc=klc,
                                                              ifhd95=ifhd95, crop_size=crop_size, pred_index=pred_index,
                                                              fold_num=fold_num, save_pred=save_pred, save_norm=save_norm,
-                                                             verbose=verbose)
+                                                             verbose=verbose, save_dir=save_dir)
         elif self._dataset == 'mmwhs':
             # modality == 'mr' for CTMR dataset
             measures = self.evaluate_single_dataset_mmwhs(seg_model, model_name=model_name, modality=modality,
@@ -94,7 +95,7 @@ class Evaluator:
                                                           cal_unctnty=cal_unctnty, watch_pat=watch_pat, klc=klc,
                                                           ifhd95=ifhd95, crop_size=crop_size, pred_index=pred_index,
                                                           fold_num=fold_num, split=split, val_num=val_num, percent=percent,
-                                                          save_pred=save_pred, volume=volume, verbose=verbose)
+                                                          save_pred=save_pred, volume=volume, verbose=verbose, save_dir=save_dir)
         else:
             print(self._dataset)
             raise NotImplementedError
@@ -714,38 +715,117 @@ class Evaluator:
 if __name__ == '__main__':
     start = datetime.now()
     import argparse
+    from model.unet_model import UNet
     from model.DRUNet import Segmentation_model as DR_UNet
+    from model.deeplabv2 import get_deeplab_v2
+    from model.segmentation_models import segmentation_models
     from torch.cuda import get_device_name
+    from utils.utils_ import get_pretrained_checkpoint
 
     print("Device name: {}".format(get_device_name(0)))
     parser = argparse.ArgumentParser(description="Evaluation")
-    parser.add_argument("--restore_from", type=str,
-                        default='pretrained/best_DR_UNet.fewshot.lr0.0003.cw0.002.poly.pat_10_lge.adam.e63.Scr0.674.pt',
-                        help="Where restore model parameters from.")
-    parser.add_argument("--batch_size", type=int, default=16, help="Number of images sent to the network in one step.")
-    parser.add_argument("--data_dir", type=str, default='../../data/mscmrseg/origin')
-    parser.add_argument("--raw_data_dir", type=str, default='../../data/mscmrseg/raw_data')
-    parser.add_argument("--modality", type=str, default='lge')
-    parser.add_argument("--phase", type=str, default='test')
-    parser.add_argument("--klc", action='store_true')
-    parser.add_argument("--torch", action='store_true')
-    parser.add_argument("--hd", action='store_true')
-    parser.add_argument("--asd", action='store_true')
+    
+    # Model configuration
+    parser.add_argument("--restore_from", type=str, required=True, help="Where restore model parameters from.")
+    parser.add_argument("--backbone", type=str, default='drunet', help="Model backbone (unet, drunet, deeplabv2, resnet50, etc.)")
+    parser.add_argument("--num_classes", type=int, default=4, help="Number of classes")
+    parser.add_argument("--multilvl", action='store_true', help="Whether to use multi-level features")
+    parser.add_argument("--filters", type=int, default=32, help="Number of filters for DRUNet")
+    parser.add_argument("--nb", type=int, default=4, help="Number of blocks for DRUNet")
+    parser.add_argument("--bd", type=int, default=4, help="Bottleneck depth for DRUNet")
+    parser.add_argument("--pretrained", action='store_true', help="Use pretrained weights")
+    
+    # Dataset and Evaluation configuration
+    parser.add_argument("--dataset", type=str, default='mscmrseg', choices=['mscmrseg', 'mmwhs'], help="Dataset name")
+    parser.add_argument("--data_dir", type=str, default='../../data/mscmrseg/origin', help="Data directory")
+    parser.add_argument("--raw_data_dir", type=str, default='../../data/mscmrseg/raw_data', help="Raw data directory")
+    parser.add_argument("--raw", action='store_true', help="Use raw data")
+    parser.add_argument("--normalization", type=str, default='zscore', help="Normalization method")
+    parser.add_argument("--modality", type=str, default='lge', help="Modality (lge, bssfp, mr, ct)")
+    parser.add_argument("--phase", type=str, default='test', choices=['train', 'valid', 'test'], help="Evaluation phase")
+    parser.add_argument("--batch_size", type=int, default=16, help="Batch size")
+    
+    # Evaluation flags
+    parser.add_argument("--klc", action='store_true', help="Keep largest connected component")
+    parser.add_argument("--hd", action='store_true', help="Calculate HD")
+    parser.add_argument("--asd", action='store_true', help="Calculate ASD")
+    parser.add_argument("--hd95", action='store_true', help="Calculate HD95")
+    
+    # Saving options
+    parser.add_argument("--save_pred", action='store_true', help="Save predictions")
+    parser.add_argument("--save_dir", type=str, default='prediction/eval_out', help="Directory to save predictions")
+    parser.add_argument("--save_csv", action='store_true', help="Save results to CSV")
+    
+    # Specific parameters
+    parser.add_argument("--crop_size", type=int, default=224, help="Crop size")
+    parser.add_argument("--spacing", type=float, default=1.0, help="Spacing")
+    parser.add_argument("--percent", type=float, default=100, help="Percentage of data used")
+    parser.add_argument("--fold", type=int, default=0, help="Fold number")
+    parser.add_argument("--split", type=int, default=0, help="Split number")
+    
     args = parser.parse_args()
-    evaluator = Evaluator(data_dir=args.data_dir, raw_data_dir=args.raw_data_dir, normalization='zscore')
-    segmentor = DR_UNet(n_class=4).cuda()
-    # if args.torch:
-    #     evaluator.evaluate_single_dataset_torch(segmentor, model_name='best_model', modality=args.modality, phase=args.phase, ifhd=args.hd,
-    #                                       ifasd=args.asd, save=False, weight_dir=args.restore_from, bs=args.batch_size,
-    #                                       toprint=True, lge_train_test_split=None, cal_unctnty=False, watch_pat=None,
-    #                                       klc=args.klc)
-    # else:
-    evaluator.evaluate_single_dataset(segmentor, model_name='best_model', modality=args.modality, phase=args.phase,
-                                      ifhd=args.hd, ifhd95=True,
-                                      ifasd=args.asd, save_csv=False, weight_dir=args.restore_from,
-                                      bs=args.batch_size,
-                                      toprint=True, lge_train_test_split=None, cal_unctnty=False,
-                                      watch_pat=None,
-                                      klc=args.klc)
+    
+    # Initialize Evaluator
+    evaluator = Evaluator(data_dir=args.data_dir, raw_data_dir=args.raw_data_dir, 
+                          normalization=args.normalization, dataset=args.dataset, raw=args.raw)
+    
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    # Initialize Model
+    if args.backbone == 'unet':
+        segmentor = UNet(n_channels=3, n_classes=args.num_classes)
+    elif args.backbone == 'drunet':
+        segmentor = DR_UNet(filters=args.filters, n_block=args.nb, bottleneck_depth=args.bd,
+                            n_class=args.num_classes, multilvl=args.multilvl, args=args)
+    elif args.backbone == 'deeplabv2':
+        segmentor = get_deeplab_v2(num_classes=args.num_classes, multi_level=args.multilvl, input_size=224)
+    elif 'resnet' in args.backbone or 'efficientnet' in args.backbone or \
+            'mobilenet' in args.backbone or 'densenet' in args.backbone or 'ception' in args.backbone or \
+            'se_resnet' in args.backbone or 'skresnext' in args.backbone:
+        segmentor = segmentation_models(name=args.backbone, pretrained=False,
+                                        decoder_channels=(512, 256, 128, 64, 32), in_channel=3,
+                                        classes=4, multilvl=args.multilvl, args=args)
+    else:
+        raise NotImplementedError(f"Backbone {args.backbone} not implemented")
+
+    # Load Weights
+    if args.restore_from:
+        print(f"Loading weights from {args.restore_from}")
+        checkpoint = torch.load(args.restore_from, map_location=device)
+        try:
+            if 'model_state_dict' in checkpoint:
+                segmentor.load_state_dict(checkpoint['model_state_dict'], strict=False)
+            else:
+                segmentor.load_state_dict(checkpoint, strict=False)
+            print("Model loaded successfully")
+        except Exception as e:
+            print(f"Error loading model: {e}")
+    
+    segmentor.to(device)
+    segmentor.eval()
+
+    # Run Evaluation
+    evaluator.evaluate_single_dataset(
+        seg_model=segmentor,
+        model_name='eval_model',
+        modality=args.modality,
+        phase=args.phase,
+        ifhd=args.hd,
+        ifasd=args.asd,
+        ifhd95=args.hd95,
+        save_csv=args.save_csv,
+        weight_dir=args.restore_from,
+        bs=args.batch_size,
+        toprint=True,
+        klc=args.klc,
+        crop_size=args.crop_size,
+        spacing=args.spacing,
+        percent=args.percent,
+        fold_num=args.fold,
+        split=args.split,
+        save_pred=args.save_pred,
+        save_dir=args.save_dir
+    )
+
     end = datetime.now()
     print('Time elapsed: {}'.format(end - start))
