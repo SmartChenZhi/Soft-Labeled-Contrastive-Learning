@@ -449,7 +449,7 @@ class Trainer_AdaptEvery(Trainer_AdapSeg):
             self.writer.add_scalars('Acc/D_ent', {'source': train_results['dis_ent_acc_s'],
                                                   'target': train_results['dis_ent_acc_t']}, epoch + 1)
             self.writer.add_scalars('Acc/D_point', {'source': train_results['dis_point_acc_s'],
-                                                    'target': train_results['dis_point_acc_s']}, epoch + 1)
+                                                    'target': train_results['dis_point_acc_t']}, epoch + 1)
             # if self.args.multilvl:
             """record losses"""
             self.writer.add_scalars('Loss/Seg', {'main': train_results['seg_s'],

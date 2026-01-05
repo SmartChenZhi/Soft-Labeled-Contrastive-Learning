@@ -13,11 +13,15 @@ python evaluator.py \
   --data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA-master \
   --restore_from weights/best_Base.mmwhs.s0.f0.v0.resnet50.lr0.00025.mmt0.9.raw.bs32.trainWst.mnmx.e125.Scr0.801.pt \
   --normalization minmax \
-  --modality mr \
+  --modality ct \
   --phase test \
-  --save_pred \
-  --raw \
-  --hd --asd
+  --raw
+
+python train_Advent.py \
+  -raw \
+  -backbone resnet50 \
+  -data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA-master \
+  -ent_min -cls_prior
 
 python pretrain_RAIN.py -raw -task pretrain_RAIN \
  -data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA-master

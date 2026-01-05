@@ -22,7 +22,7 @@ RANDOM_SEED = 1234
 INPUT_SIZE = 224
 DATA_DIRECTORY = "../../data/mscmrseg/origin"
 RAW_DATA_DIRECTORY = "../../data/mscmrseg/raw_data"
-EPOCHS = 200
+EPOCHS = 2000
 WARMUP_EPOCHS = EPOCHS
 EPS_ITERS = 5
 
