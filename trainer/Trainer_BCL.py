@@ -64,7 +64,65 @@ class Trainer_BCL(Trainer_baseline):
     def prepare_dataloader(self):
         super(Trainer_BCL, self).prepare_dataloader()
         if self.dataset == 'mscmrseg':
+            from dataset.data_generator_mscmrseg import prepare_dataset, init_test_dataset
+            self.scratch, self.scratch_raw, self.content_loader, self.style_loader = prepare_dataset(self.args)
             self.init_target = init_test_dataset(self.args, self.scratch)
+        elif self.dataset == 'mmwhs':
+            from dataset.data_generator_mmwhs import prepare_dataset, DataGenerator
+            from torch.utils import data
+            self.scratch, self.scratch_raw, self.content_loader, self.style_loader = prepare_dataset(self.args)
+            # Init target dataset for pseudo label generation (no augmentation)
+            style_dataset = DataGenerator(modality='ct' if self.args.rev else 'mr', crop_size=self.args.crop,
+                                          augmentation=False, data_dir=self.scratch, bs=self.args.bs, clahe=self.args.clahe,
+                                          aug_mode=self.args.aug_mode, normalization=self.args.normalization, fold=self.args.fold,
+                                          aug_counter=False, domain='t', vert=False, split=self.args.split, val_num=self.args.val_num, M3ASdata=self.args.noM3AS)
+            self.init_target = data.DataLoader(style_dataset, batch_size=self.args.bs, shuffle=False,
+                                               num_workers=self.args.num_workers,
+                                               pin_memory=self.args.pin_memory)
+
+    def update_dataloader(self, data_dir):
+        from torch.utils import data
+        import math
+        
+        content_dataset = None
+        style_dataset = None
+        
+        if self.dataset == 'mscmrseg':
+            from dataset.data_generator_mscmrseg import DataGenerator
+            content_dataset = DataGenerator(modality='lge' if self.args.rev else 'bssfp', crop_size=self.args.crop,
+                                            augmentation=self.args.aug_s, data_dir=data_dir, bs=self.args.bs, clahe=self.args.clahe,
+                                            aug_mode=self.args.aug_mode, normalization=self.args.normalization, fold=self.args.fold,
+                                            aug_counter=False, domain='s', vert=False)
+            style_dataset = DataGenerator(modality='bssfp' if self.args.rev else 'lge', crop_size=self.args.crop,
+                                          augmentation=self.args.aug_t, data_dir=data_dir, bs=self.args.bs, clahe=self.args.clahe,
+                                          aug_mode=self.args.aug_mode, normalization=self.args.normalization, fold=self.args.fold,
+                                          aug_counter=False, domain='t', vert=False)
+        elif self.dataset == 'mmwhs':
+            from dataset.data_generator_mmwhs import DataGenerator
+            content_dataset = DataGenerator(modality='mr' if self.args.rev else 'ct', crop_size=self.args.crop,
+                                            augmentation=self.args.aug_s, data_dir=data_dir, bs=self.args.bs,
+                                            aug_mode=self.args.aug_mode, normalization=self.args.normalization, clahe=self.args.clahe,
+                                            aug_counter=False, fold=self.args.fold, domain='s',
+                                            vert=False, split=self.args.split, val_num=self.args.val_num)
+            style_dataset = DataGenerator(modality='ct' if self.args.rev else 'mr', crop_size=self.args.crop,
+                                          augmentation=self.args.aug_t, data_dir=data_dir, bs=self.args.bs,
+                                          aug_mode=self.args.aug_mode, normalization=self.args.normalization, clahe=self.args.clahe,
+                                          aug_counter=False, fold=self.args.fold, domain='t',
+                                          vert=False, split=self.args.split, val_num=self.args.val_num, M3ASdata=self.args.noM3AS)
+        
+        if content_dataset and style_dataset:
+            n_samples = int(math.ceil(max(content_dataset.n_samples, style_dataset.n_samples) / self.args.bs) * self.args.bs)
+            content_dataset.n_samples = n_samples
+            style_dataset.n_samples = n_samples
+            
+            self.content_loader = data.DataLoader(content_dataset, batch_size=self.args.bs, shuffle=True,
+                                                  num_workers=self.args.num_workers,
+                                                  pin_memory=self.args.pin_memory)
+            self.style_loader = data.DataLoader(style_dataset, batch_size=self.args.bs, shuffle=True,
+                                                num_workers=self.args.num_workers,
+                                                pin_memory=self.args.pin_memory)
+            print(f'Dataloaders updated from {data_dir}')
+
 
     def prepare_losses(self):
         from utils.loss import loss_entropy_BCL, bidirect_contrastive_loss_BCL
@@ -116,6 +174,29 @@ class Trainer_BCL(Trainer_baseline):
         self.plabel_path = os.path.join(self.args.plabel, self.args.note, str(round_))
 
         mkdir(self.plabel_path)
+        # Create necessary subdirectories
+        if self.dataset == 'mscmrseg':
+            # Create trainXmask directory
+            modality = 'bssfp' if self.args.rev else 'lge' # target domain
+            st = 'A' if (modality == 'bssfp' or modality == 't2') else 'B'
+            mask_dir_name = f'train{st}mask'
+            os.makedirs(os.path.join(self.plabel_path, mask_dir_name), exist_ok=True)
+            
+            # Link other directories from scratch
+            for item in os.listdir(self.scratch):
+                if item != mask_dir_name:
+                    src = os.path.join(self.scratch, item)
+                    dst = os.path.join(self.plabel_path, item)
+                    if not os.path.exists(dst):
+                        os.symlink(src, dst)
+        elif self.dataset == 'mmwhs':
+            target_modality = 'ct' if self.args.rev else 'mr'
+            # Create subfolders for mmwhs
+            for suffix in ['_train', '_test']:
+                folder_name = f'{target_modality.upper()}{suffix}'
+                os.makedirs(os.path.join(self.plabel_path, folder_name), exist_ok=True)
+
+
         self.args.target_data_dir = self.plabel_path
         # save the probability of pseudo labels for the pixel-wise similarity matching, which is detailed around Eq. (9)
         # self.pool = Pool()
@@ -124,42 +205,62 @@ class Trainer_BCL(Trainer_baseline):
         cls_acc = GroupAverageMeter()  # Class-wise Acc/Prop of Pseudo labels
         with torch.no_grad():
             for index, batch in tqdm(enumerate(self.init_target)):
-                image, label, _, _, name = batch
+                image, label, name = batch
                 label = label.to(self.device)
-                img_name = name[0].split("/")[-1]
-                dir_name = name[0].split("/")[0]
-                img_name = img_name.replace("leftImg8bit", "gtFine_labelIds")
-                temp_dir = os.path.join(self.plabel_path, dir_name)
-                if not os.path.exists(temp_dir):
-                    os.mkdir(temp_dir)
-
+                
                 output, _ = self.segmentor.forward(image.to(self.device), source=False)
-                output = interp(output)  # (1, C, H, W)
-                # the mask and the pseudo labels selected by global threshold
-                mask, plabel = thres_cb_plabel(output, self.cb_thres, num_cls=self.args.num_classes)
-                # the mask and the pseudo labels selected by local threshold
-                mask2, plabel2 = gene_plabel_prop(output, self.args.cb_prop)
-                # fuse the global and local mask and generate the pseudo label with the mask
-                # The fusion strategy is detailed in Sec. 3.3 of paper
-                mask, plabel = mask_fusion(output, mask, mask2)  # (H, W), (H, W)
-                # update the average ratio (between the sum of the probability and the total number of selected pixel)
-                # WARNING: Bug in the calculation of the average ratio
-                # self.pool.update_pool(output, mask=mask.float())
-                # NOTE:
-                #   acc: the accuracy for the overall predictions that is over the threshold. sensitivity: TP / TP + FN
-                #   prop: the proportion of the selected pixels whose prediction is larger than the threshold.
-                #   acc_dict: {class_index: (accuracy, total number of prediction of the class)}
-                acc, prop, cls_dict = Acc(plabel, label, num_cls=self.args.num_classes)
-                cnt = (plabel != 255).sum().item()
-                accs.update(acc, cnt)
-                props.update(prop, 1)
-                cls_acc.update(cls_dict)
-                plabel = plabel.view(1024, 2048)
-                plabel = plabel.cpu().numpy()
-
-                plabel = np.asarray(plabel, dtype=np.uint8)
-                save_path = "%s/%s.png" % (temp_dir, img_name.split(".")[0])
-                imwrite(save_path, plabel)
+                output = interp(output)  # (B, C, H, W)
+                
+                # Iterate over batch
+                for i in range(image.size(0)):
+                    output_i = output[i:i+1]
+                    label_i = label[i:i+1]
+                    name_i = name[i]
+                    
+                    # the mask and the pseudo labels selected by global threshold
+                    mask, plabel = thres_cb_plabel(output_i, self.cb_thres, num_cls=self.args.num_classes)
+                    # the mask and the pseudo labels selected by local threshold
+                    mask2, plabel2 = gene_plabel_prop(output_i, self.args.cb_prop)
+                    # fuse the global and local mask and generate the pseudo label with the mask
+                    mask, plabel = mask_fusion(output_i, mask, mask2)  # (H, W), (H, W)
+                    
+                    acc, prop, cls_dict = Acc(plabel, label_i, num_cls=self.args.num_classes)
+                    cnt = (plabel != 255).sum().item()
+                    accs.update(acc, cnt)
+                    props.update(prop, 1)
+                    cls_acc.update(cls_dict)
+                    
+                    plabel = plabel.cpu().numpy().astype(np.uint8)
+                    
+                    # Construct save path
+                    if self.dataset == 'mscmrseg':
+                         save_path = os.path.join(self.plabel_path, mask_dir_name, f'{name_i}.png')
+                    elif self.dataset == 'mmwhs':
+                        target_modality = 'ct' if self.args.rev else 'mr'
+                        # Determine subfolder
+                        if os.path.exists(os.path.join(self.scratch, f'{target_modality.upper()}_train', f'{name_i}.png')):
+                            subfolder = f'{target_modality.upper()}_train'
+                        else:
+                            subfolder = f'{target_modality.upper()}_test'
+                        
+                        lab_name = name_i.replace('img', 'lab')
+                        save_path = os.path.join(self.plabel_path, subfolder, f'{lab_name}.png')
+                        
+                        # Symlink image
+                        src_img = os.path.join(self.scratch, subfolder, f'{name_i}.png')
+                        dst_img = os.path.join(self.plabel_path, subfolder, f'{name_i}.png')
+                        if not os.path.exists(dst_img):
+                            os.symlink(src_img, dst_img)
+                    else:
+                        img_name = name_i.split("/")[-1]
+                        dir_name = name_i.split("/")[0]
+                        img_name = img_name.replace("leftImg8bit", "gtFine_labelIds")
+                        temp_dir = os.path.join(self.plabel_path, dir_name)
+                        if not os.path.exists(temp_dir):
+                            os.mkdir(temp_dir)
+                        save_path = "%s/%s.png" % (temp_dir, img_name.split(".")[0])
+                        
+                    imwrite(save_path, plabel)
 
         print('The Accuracy :{:.2%} and proportion :{:.2%} of Pseudo Labels'.format(accs.avg.item(), props.avg.item()))
         # if self.config.neptune:
@@ -178,7 +279,7 @@ class Trainer_BCL(Trainer_baseline):
 
         probs = {}  # store a dictionary for the probability prediction of each class
         for index, batch in tqdm(enumerate(self.init_target)):
-            img, label, _, _, _ = batch  # img (1, 3, H, W)
+            img, label, _ = batch  # img (1, 3, H, W)
             with torch.no_grad():
                 # x1, _ = self.model.forward(img.to(self.device))
                 x1, _ = self.segmentor.forward(img.to(self.device), source=False)  # x1 (1, C, h, w)
@@ -279,11 +380,11 @@ class Trainer_BCL(Trainer_baseline):
     @timer.timeit
     def train(self):
         for r in range(self.start_round, self.args.round):
-            if self.dataset == 'mscmrseg':
+            if self.dataset == 'mscmrseg' or self.dataset == 'mmwhs':
                 self.cb_thres = self.gene_thres(
                     self.args.cb_prop + self.args.thres_inc * r)
                 self.save_pred(r)
-                self.plabel_path = os.path.join(self.args.plabel, self.args.note or self.apdx, str(r))
+                self.update_dataloader(self.plabel_path)
             else:
                 self.cb_thres = None
 
