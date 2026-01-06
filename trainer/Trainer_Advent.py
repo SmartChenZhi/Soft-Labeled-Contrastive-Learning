@@ -17,7 +17,22 @@ from trainer.Trainer_AdaptSeg import Trainer_AdapSeg
 class Trainer_Advent(Trainer_AdapSeg):
     def __init__(self):
         super().__init__()
-        self.class_prior = torch.from_numpy(np.array([0.9146, 0.0253, 0.0309, 0.0292])).to(self.device)
+        if self.args.cls_prior:
+            self.calculate_class_prior()
+
+    def calculate_class_prior(self):
+        print("Calculating class prior from source dataset...")
+        class_counts = torch.zeros(self.args.num_classes).to(self.device)
+        
+        with torch.no_grad():
+            for batch in tqdm(self.content_loader, desc="Calculating Prior"):
+                _, labels_s, _ = batch
+                labels_s = labels_s.to(self.device)
+                for c in range(self.args.num_classes):
+                    class_counts[c] += (labels_s == c).sum()
+        
+        self.class_prior = class_counts / class_counts.sum()
+        print(f"Calculated class prior: {self.class_prior.cpu().numpy()}")
 
     def add_additional_arguments(self):
         super(Trainer_Advent, self).add_additional_arguments()
