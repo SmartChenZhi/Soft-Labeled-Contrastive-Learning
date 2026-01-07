@@ -1,6 +1,7 @@
 """torch import"""
 import torch
 import torch.nn.functional as F
+from torchvision.utils import make_grid
 
 import os
 import numpy as np
@@ -266,6 +267,17 @@ class Trainer_AdapSeg(Trainer_baseline):
             resultls['loss_adv_aux'] = sum(loss_adv_aux_list) / len(loss_adv_aux_list)
             resultls['loss_dis1'] = sum(loss_dis1_list) / len(loss_dis1_list) if len(loss_dis1_list) > 0 else 0.0
 
+        """save the visualization results"""
+        if 'img_s' in locals():
+            resultls['vis_img_s'] = img_s.detach().cpu()
+            resultls['vis_pred_s'] = torch.argmax(pred_s, dim=1).detach().cpu()
+            resultls['vis_label_s'] = labels_s.detach().cpu()
+        if 'img_t' in locals():
+            resultls['vis_img_t'] = img_t.detach().cpu()
+            resultls['vis_pred_t'] = torch.argmax(pred_t, dim=1).detach().cpu()
+            if 'labels_t' in locals():
+                resultls['vis_label_t'] = labels_t.detach().cpu()
+
         return resultls
 
     def train(self):
@@ -316,6 +328,27 @@ class Trainer_AdapSeg(Trainer_baseline):
                 self.writer.add_scalar('Loss/Dis', train_results['loss_dis'], epoch + 1)
                 self.writer.add_scalars('LR', {'Seg': self.opt.param_groups[0]['lr'],
                                                'Dis': self.opt_d.param_groups[0]['lr']}, epoch + 1)
+
+            """visualize the segmentation results"""
+            if 'vis_img_s' in train_results:
+                self.writer.add_image('Train/Image_Source',
+                                      make_grid(train_results['vis_img_s'][:4], normalize=True), epoch + 1)
+                self.writer.add_image('Train/Label_Source',
+                                      make_grid(train_results['vis_label_s'][:4].unsqueeze(1).float(),
+                                                normalize=True), epoch + 1)
+                self.writer.add_image('Train/Pred_Source',
+                                      make_grid(train_results['vis_pred_s'][:4].unsqueeze(1).float(),
+                                                normalize=True), epoch + 1)
+            if 'vis_img_t' in train_results:
+                self.writer.add_image('Train/Image_Target',
+                                      make_grid(train_results['vis_img_t'][:4], normalize=True), epoch + 1)
+                self.writer.add_image('Train/Pred_Target',
+                                      make_grid(train_results['vis_pred_t'][:4].unsqueeze(1).float(),
+                                                normalize=True), epoch + 1)
+            if 'vis_label_t' in train_results:
+                self.writer.add_image('Train/Label_Target',
+                                      make_grid(train_results['vis_label_t'][:4].unsqueeze(1).float(),
+                                                normalize=True), epoch + 1)
 
             print(
                 f'Epoch = {epoch + 1:4d}/{self.args.epochs:4d}, loss_seg = {train_results["seg_s"]:.4f}, dc_valid = {lge_dice:.4f}')
