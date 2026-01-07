@@ -34,12 +34,21 @@ class Trainer_AdapSeg(Trainer_baseline):
         self.parser.add_argument('-w_dis_aux', type=float, default=2e-4)
         self.parser.add_argument('-restore_d', help='the weight dir of the discriminator', type=str, default=None)
         self.parser.add_argument('-restore_d_aux', help='the weight dir of the discriminator1', type=str, default=None)
+        self.parser.add_argument('-d_label_smooth', help='label smoothing for discriminator', type=float, default=0.0)
+        self.parser.add_argument('-d_update_freq', help='update frequency for discriminator', type=int, default=1)
+        self.parser.add_argument('-adv_warmup_epochs', help='warmup epochs for segmentation before adversarial training', type=int, default=0)
 
     def get_arguments_apdx(self):
         super(Trainer_AdapSeg, self).get_basic_arguments_apdx(name='AdaptSeg')
 
         self.apdx += f".bs{self.args.bs}"
         self.apdx += f".lr_dis{self.args.lr_dis}.w_dis{self.args.w_dis}"
+        if self.args.d_label_smooth > 0:
+            self.apdx += f".dls{self.args.d_label_smooth}"
+        if self.args.d_update_freq > 1:
+            self.apdx += f".duf{self.args.d_update_freq}"
+        if self.args.adv_warmup_epochs > 0:
+            self.apdx += f".wup{self.args.adv_warmup_epochs}"
         if self.args.multilvl:
             self.apdx += f'.mutlvl.w_d_aux{self.args.w_dis_aux}'
             self.apdx += f'.wsegaux{self.args.w_seg_aux}'
@@ -119,7 +128,7 @@ class Trainer_AdapSeg(Trainer_baseline):
     def adjust_lr(self, epoch):
         super(Trainer_AdapSeg, self).adjust_lr(epoch)
         if self.args.adjust_lr_dis:
-            if self.args.lr_decay_method == 'poly':
+            if self.args.lr_decay_method == 'poly' or self.args.lr_decay_method is None:
                 adjust_learning_rate(self.opt_d, epoch, self.args.lr_dis, warmup_epochs=0,
                                      power=self.args.power, epochs=self.args.epochs)
                 if self.args.multilvl:
@@ -138,7 +147,12 @@ class Trainer_AdapSeg(Trainer_baseline):
         loss_seg_aux_list = []
         loss_adv_list, loss_adv_aux_list, loss_dis_list, loss_dis1_list = [], [], [], []
         d1_acc_s, d1_acc_t, d_acc_s, d_acc_t = [], [], [], []
-        for batch_content, batch_style in zip(self.content_loader, self.style_loader):
+        
+        # Label smoothing
+        d_source_label = 1.0 - self.args.d_label_smooth
+        d_target_label = self.args.d_label_smooth
+
+        for batch_idx, (batch_content, batch_style) in enumerate(zip(self.content_loader, self.style_loader)):
             self.opt_d.zero_grad()
             self.opt_d_aux.zero_grad()
             self.opt.zero_grad()
@@ -160,22 +174,28 @@ class Trainer_AdapSeg(Trainer_baseline):
                 loss_seg += self.args.w_seg_aux * loss_seg_aux
 
             loss_adv, loss_adv_aux = 0, 0
-            img_t, labels_t, namet = batch_style
-            img_t = img_t.to(self.device, non_blocking=self.args.pin_memory)
-            pred_t, pred_t_aux, _ = self.segmentor(img_t)
-            D_out = self.d_main(F.softmax(pred_t, dim=1))
-            loss_adv = F.binary_cross_entropy_with_logits(D_out, torch.FloatTensor(
-                D_out.data.size()).fill_(
-                source_domain_label).cuda())
-            if self.args.multilvl:
-                D_out1 = self.d_aux(F.softmax(pred_t_aux))
-                loss_adv_aux = F.binary_cross_entropy_with_logits(D_out1, torch.FloatTensor(
-                    D_out1.data.size()).fill_(
+            if epoch >= self.args.adv_warmup_epochs:
+                img_t, labels_t, namet = batch_style
+                img_t = img_t.to(self.device, non_blocking=self.args.pin_memory)
+                pred_t, pred_t_aux, _ = self.segmentor(img_t)
+                D_out = self.d_main(F.softmax(pred_t, dim=1))
+                loss_adv = F.binary_cross_entropy_with_logits(D_out, torch.FloatTensor(
+                    D_out.data.size()).fill_(
                     source_domain_label).cuda())
-                loss_adv_aux_list.append(loss_adv_aux.item())
+                if self.args.multilvl:
+                    D_out1 = self.d_aux(F.softmax(pred_t_aux, dim=1))
+                    loss_adv_aux = F.binary_cross_entropy_with_logits(D_out1, torch.FloatTensor(
+                        D_out1.data.size()).fill_(
+                        source_domain_label).cuda())
+                    loss_adv_aux_list.append(loss_adv_aux.item())
             """save the adversarial losses"""
-            loss_adv_list.append(loss_adv.item())
+            loss_adv_list.append(loss_adv.item() if torch.is_tensor(loss_adv) else loss_adv)
             (loss_seg + self.args.w_dis * loss_adv + self.args.w_dis_aux * loss_adv_aux).backward()
+
+            # Discriminator update frequency and warmup
+            if epoch < self.args.adv_warmup_epochs or batch_idx % self.args.d_update_freq != 0:
+                self.opt.step()
+                continue
 
             for param in self.d_main.parameters():
                 param.requires_grad = True
@@ -188,19 +208,19 @@ class Trainer_AdapSeg(Trainer_baseline):
             pred_t = pred_t.detach()
 
             if self.args.multilvl:
-                D_out_s = self.d_aux(F.softmax(pred_s_aux))
+                D_out_s = self.d_aux(F.softmax(pred_s_aux, dim=1))
                 loss_D_s = F.binary_cross_entropy_with_logits(D_out_s, torch.FloatTensor(D_out_s.data.size()).fill_(
-                    source_domain_label).cuda())
+                    d_source_label).cuda())
                 loss_D_s = loss_D_s / 2
                 loss_D_s.backward()
                 D_out_s = torch.sigmoid(D_out_s.detach()).cpu().numpy()
                 D_out_s = np.where(D_out_s >= .5, 1, 0)
                 d1_acc_s.append(np.mean(D_out_s))
 
-                D_out_t_aux = self.d_aux(F.softmax(pred_t_aux))
+                D_out_t_aux = self.d_aux(F.softmax(pred_t_aux, dim=1))
                 loss_D_t1 = F.binary_cross_entropy_with_logits(D_out_t_aux,
                                                                torch.FloatTensor(D_out_t_aux.data.size()).fill_(
-                                                                   target_domain_label).cuda())
+                                                                   d_target_label).cuda())
                 loss_D_t1 = loss_D_t1 / 2
                 loss_D_t1.backward()
                 D_out_t_aux = torch.sigmoid(D_out_t_aux.detach()).cpu().numpy()
@@ -209,18 +229,18 @@ class Trainer_AdapSeg(Trainer_baseline):
 
                 loss_dis1_list.append((loss_D_s + loss_D_t1).item())
 
-            D_out_s = self.d_main(F.softmax(pred_s))
+            D_out_s = self.d_main(F.softmax(pred_s, dim=1))
             loss_D_s = F.binary_cross_entropy_with_logits(D_out_s, torch.FloatTensor(D_out_s.data.size()).fill_(
-                source_domain_label).cuda())
+                d_source_label).cuda())
             loss_D_s = loss_D_s / 2
             loss_D_s.backward()
             D_out_s = torch.sigmoid(D_out_s.detach()).cpu().numpy()
             D_out_s = np.where(D_out_s >= .5, 1, 0)
             d_acc_s.append(np.mean(D_out_s))
 
-            D_out_t = self.d_main(F.softmax(pred_t))
+            D_out_t = self.d_main(F.softmax(pred_t, dim=1))
             loss_D_t = F.binary_cross_entropy_with_logits(D_out_t, torch.FloatTensor(D_out_t.data.size()).fill_(
-                target_domain_label).cuda())
+                d_target_label).cuda())
             loss_D_t = loss_D_t / 2
             loss_D_t.backward()
             D_out_t = torch.sigmoid(D_out_t.detach()).cpu().numpy()
@@ -235,16 +255,16 @@ class Trainer_AdapSeg(Trainer_baseline):
             self.opt.step()
 
         resultls['seg_s'] = sum(loss_seg_list) / len(loss_seg_list)
-        resultls['dis_acc_s'] = sum(d_acc_s) / len(d_acc_s)
-        resultls['dis_acc_t'] = sum(d_acc_t) / len(d_acc_t)
+        resultls['dis_acc_s'] = sum(d_acc_s) / len(d_acc_s) if len(d_acc_s) > 0 else 0.0
+        resultls['dis_acc_t'] = sum(d_acc_t) / len(d_acc_t) if len(d_acc_t) > 0 else 0.0
         resultls['loss_adv'] = sum(loss_adv_list) / len(loss_adv_list)
-        resultls['loss_dis'] = sum(loss_dis_list) / len(loss_dis_list)
+        resultls['loss_dis'] = sum(loss_dis_list) / len(loss_dis_list) if len(loss_dis_list) > 0 else 0.0
         if self.args.multilvl:
             resultls['seg_s_aux'] = sum(loss_seg_aux_list) / len(loss_seg_aux_list)
-            resultls['dis1_acc_s'] = sum(d1_acc_s) / len(d1_acc_s)
-            resultls['dis1_acc_t'] = sum(d1_acc_t) / len(d1_acc_t)
+            resultls['dis1_acc_s'] = sum(d1_acc_s) / len(d1_acc_s) if len(d1_acc_s) > 0 else 0.0
+            resultls['dis1_acc_t'] = sum(d1_acc_t) / len(d1_acc_t) if len(d1_acc_t) > 0 else 0.0
             resultls['loss_adv_aux'] = sum(loss_adv_aux_list) / len(loss_adv_aux_list)
-            resultls['loss_dis1'] = sum(loss_dis1_list) / len(loss_dis1_list)
+            resultls['loss_dis1'] = sum(loss_dis1_list) / len(loss_dis1_list) if len(loss_dis1_list) > 0 else 0.0
 
         return resultls
 

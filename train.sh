@@ -1,4 +1,4 @@
-tensorboard --logdir ./runs --port 6006
+tensorboard  --port 6006 --logdir 
 # baseline
 python train_baseline.py \
   -raw \
@@ -24,10 +24,10 @@ python train_Advent.py \
   -ent_min -cls_prior
 
 python train_AdaptSeg.py \
-  -raw \
+  -raw -rev\
   -backbone resnet50 \
   -data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA-master \
-  -multilvl 
+  -multilvl -d_label_smooth 0.1 -d_update_freq 2 -adjust_lr_dis -lr_dis 1e-5
 
 python pretrain_RAIN.py -raw -task pretrain_RAIN \
  -data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA-master
