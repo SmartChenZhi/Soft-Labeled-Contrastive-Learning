@@ -44,10 +44,10 @@ python train_SLCL.py \
   -train_with_t \
 
 python train_MCCL.py \
-  -lr 8e-4 -raw -rev -CNR -CNR_w 4e-5 -clda -intra -phead\
+  -lr 8e-4 -rev -CNR -CNR_w 4e-5 -clda -intra -phead\
   -wtd_ave -part 2 -bs 16\
   -backbone resnet50 \
-  -data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA-master
+  -data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA_png/
 
 python train_BCL.py \
   -raw -backbone resnet50 \

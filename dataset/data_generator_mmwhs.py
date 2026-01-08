@@ -88,8 +88,19 @@ class DataGenerator(data.Dataset):
         self._n_samples = value
 
     def get_images_masks(self, img_path, mask_path):
+        if not os.path.exists(img_path):
+            raise FileNotFoundError(f"Image file not found: {os.path.abspath(img_path)}")
+        if not os.path.exists(mask_path):
+            raise FileNotFoundError(f"Mask file not found: {os.path.abspath(mask_path)}")
+
         img = cv2.imread(img_path)
         mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+
+        if img is None:
+            raise ValueError(f"Failed to read image (corrupted or format not supported): {img_path}")
+        if mask is None:
+            raise ValueError(f"Failed to read mask (corrupted or format not supported): {mask_path}")
+
         mask = (mask == 87) * 1 + (mask == 212) * 2 + (mask == 255) * 3
         mask = np.array(mask, dtype=np.uint8)
         return img, mask

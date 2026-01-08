@@ -99,8 +99,8 @@ def nii_to_png_mscmrseg(crop_size=224, preprocess=True, parent_folder='preproces
 
 
 def nii_to_png_mmwhs(percent=100):
-    read = 'D:\Work\ERC_project\Projects\data\mmwhs\CT_MR_2D_Dataset_DA-master'
-    save = 'D:\Work\ERC_project\Projects\data\mmwhs\CT_MR_2D_Dataset_DA_png'
+    read = '/root/data/mmwhs/CT_MR_2D_Dataset_DA-master'
+    save = '/root/data/mmwhs/CT_MR_2D_Dataset_DA_png'
     if percent != 100:
         save += f'/max{percent}'
     dir_dic = {'CT_withGT': {'start': 33, 'end': 52, 'save': 'CT_test'},
@@ -129,12 +129,14 @@ def nii_to_png_mmwhs(percent=100):
                 if not save_path.parent.exists():
                     save_path.parent.mkdir(parents=True)
                 cv2.imwrite(str(save_path), arr[..., 0])
-                # lab_path = str(Path(path).parent.joinpath(Path(path).name.replace('img', 'lab')))
-                # lab = sitk.GetArrayFromImage(sitk.ReadImage(lab_path))
-                # lab = (lab == 205) * 87 + (lab == 420) * 178 + (lab == 500) * 212 + (lab == 550) * 233 + (lab == 600) * 255
-                # save_path = Path(f'{save}/{dir_dic[key]["save"]}/').joinpath(
-                #     Path(Path(lab_path).stem).stem + '.png')
-                # cv2.imwrite(str(save_path), lab)
+                lab_path = Path(path).parent.joinpath(Path(path).name.replace('img', 'lab'))
+                if lab_path.exists():
+                    lab = sitk.GetArrayFromImage(sitk.ReadImage(str(lab_path)))
+                    lab = (lab == 205) * 87 + (lab == 420) * 178 + (lab == 500) * 212 + (lab == 550) * 233 + (lab == 600) * 255
+                    lab = lab.astype(np.uint8)
+                    save_path = Path(f'{save}/{dir_dic[key]["save"]}/').joinpath(
+                        Path(Path(lab_path).stem).stem + '.png')
+                    cv2.imwrite(str(save_path), lab)
                 print(f'{save_path} saved')
 
 
