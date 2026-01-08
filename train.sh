@@ -26,7 +26,11 @@ python train_AdaptSeg.py \
   -raw -rev\
   -backbone resnet50 \
   -data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA-master \
-  -multilvl -d_label_smooth 0.1 -d_update_freq 3 -adjust_lr_dis -lr_dis 1e-5
+  -multilvl -d_label_smooth 0.1 -d_update_freq 3 -adjust_lr_dis -lr_dis 1e-5 \
+  -epochs 2000 \
+  -restore_from weights/AdaptSeg.mmwhs.s0.f0.v0.resnet50.lr0.00025.mmt0.9.raw.bs32.lr_dis1e-05.w_dis0.001.dls0.1.duf3.mutlvl.w_d_aux0.0002.wsegaux0.1.pt \
+  -restore_d weights/out_dis_AdaptSeg.mmwhs.s0.f0.v0.resnet50.lr0.00025.mmt0.9.raw.bs32.lr_dis1e-05.w_dis0.001.dls0.1.duf3.mutlvl.w_d_aux0.0002.wsegaux0.1.pt \
+  -restore_d_aux weights/out_dis1_AdaptSeg.mmwhs.s0.f0.v0.resnet50.lr0.00025.mmt0.9.raw.bs32.lr_dis1e-05.w_dis0.001.dls0.1.duf3.mutlvl.w_d_aux0.0002.wsegaux0.1.pt
 
 python pretrain_RAIN.py -raw -task pretrain_RAIN \
  -data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA-master
@@ -40,9 +44,8 @@ python train_SLCL.py \
   -train_with_t \
 
 python train_MCCL.py \
-  -lr 8e-4 -raw -train_with_s -train_with_t \
-  -thd 0.95 \
-  -bs 32 \
+  -lr 8e-4 -raw -rev -CNR -CNR_w 4e-5 -clda -intra -phead\
+  -wtd_ave -part 2 -bs 16\
   -backbone resnet50 \
   -data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA-master
 

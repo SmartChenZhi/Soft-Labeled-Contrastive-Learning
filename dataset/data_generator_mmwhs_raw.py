@@ -143,12 +143,12 @@ def prepare_dataset(args, aug_counter=False, vert=False):
     content_dataset = DataGenerator(modality='mr' if args.rev else 'ct', crop_size=args.crop,
                                     augmentation=args.aug_s, data_dir=scratch, bs=args.bs,
                                     aug_mode=args.aug_mode, normalization=args.normalization,
-                                    aug_counter=aug_counter if args.rev else False, fold=args.fold, domain='s',
+                                    aug_counter=False if args.rev else aug_counter, fold=args.fold, domain='s',
                                     vert=vert, split=args.split, val_num=args.val_num, percent=args.percent)
     style_dataset = DataGenerator(modality='ct' if args.rev else 'mr', crop_size=args.crop,
                                   augmentation=args.aug_t, data_dir=scratch, bs=args.bs,
                                   aug_mode=args.aug_mode, normalization=args.normalization,
-                                  aug_counter=False if args.rev else aug_counter, fold=args.fold, domain='t',
+                                  aug_counter=aug_counter if args.rev else False, fold=args.fold, domain='t',
                                   vert=vert, split=args.split, val_num=args.val_num, M3ASdata=args.noM3AS, percent=args.percent)
     n_samples = int(
         math.ceil(max(content_dataset.n_samples, style_dataset.n_samples) / args.bs) * args.bs)

@@ -163,6 +163,62 @@ class Trainer_MCCL(Trainer_RAIN):
         else:
             raise NotImplementedError
 
+    def _log_images(self, visual_dict, step):
+        def process_image(img):
+            # img: [B, C, H, W]
+            if img.dim() == 3:
+                img = img.unsqueeze(1)
+            # Normalize to 0-1 for visualization
+            min_val = img.min()
+            max_val = img.max()
+            if max_val > min_val:
+                img = (img - min_val) / (max_val - min_val)
+            return img
+
+        def process_mask(mask):
+            # mask: [B, H, W]
+            mask = mask.float()
+            mask = mask.unsqueeze(1)  # [B, 1, H, W]
+            mask = mask / (self.args.num_classes - 1 if self.args.num_classes > 1 else 1)
+            return mask
+
+        img_s = visual_dict.get('img_s')
+        num_samples = min(4, img_s.size(0))
+
+        def add_to_list(key, process_func):
+            if key in visual_dict:
+                data = visual_dict[key][:num_samples]
+                data = process_func(data)
+                if data.size(1) == 1:
+                    data = data.repeat(1, 3, 1, 1)
+                return data
+            return None
+
+        img_s_proc = add_to_list('img_s', process_image)
+        labels_s_proc = add_to_list('labels_s', process_mask)
+        pred_seg_s_proc = add_to_list('pred_seg_s', process_mask)
+        img_t_proc = add_to_list('img_t', process_image)
+        pred_t_proc = add_to_list('pred_t', process_mask)
+        img_style_proc = add_to_list('img_style', process_image)
+        pred_seg_style_proc = add_to_list('pred_seg_style', process_mask)
+
+        if img_s_proc is not None:
+            self.writer.add_images('Images/Source', img_s_proc, step)
+        if labels_s_proc is not None:
+            self.writer.add_images('Images/Source_Label', labels_s_proc, step)
+        if pred_seg_s_proc is not None:
+            self.writer.add_images('Images/Source_Pred', pred_seg_s_proc, step)
+
+        if img_t_proc is not None:
+            self.writer.add_images('Images/Target', img_t_proc, step)
+        if pred_t_proc is not None:
+            self.writer.add_images('Images/Target_Pred', pred_t_proc, step)
+
+        if img_style_proc is not None:
+            self.writer.add_images('Images/Style', img_style_proc, step)
+        if pred_seg_style_proc is not None:
+            self.writer.add_images('Images/Style_Pred', pred_seg_style_proc, step)
+
     def train_epoch(self, epoch):
         print(f'start to train epoch: {epoch}')
         self.segmentor.train()
@@ -177,7 +233,8 @@ class Trainer_MCCL(Trainer_RAIN):
         grads_centroid, grads_ft = [], []
         """initialize the source centroid"""
         centroid_s = None
-        for batch_content, batch_style in zip(self.content_loader, self.style_loader):
+        visual_dict = {}
+        for i_batch, (batch_content, batch_style) in enumerate(zip(self.content_loader, self.style_loader)):
             self.opt.zero_grad()
             sampling = None
             img_s, labels_s, names = batch_content
@@ -252,6 +309,16 @@ class Trainer_MCCL(Trainer_RAIN):
                 loss_seg_s = loss_calc(pred_seg[style_size:], labels_s, self.device, jaccard=True)
                 loss_seg_s_list.append(loss_seg_s.item())
                 loss_seg += loss_seg_s
+
+                if i_batch == 0 and eps_iter == 0:
+                    visual_dict['img_s'] = img_s.detach().cpu()
+                    visual_dict['img_t'] = img_t.detach().cpu()
+                    visual_dict['labels_s'] = labels_s.detach().cpu()
+                    visual_dict['pred_seg_s'] = torch.argmax(pred_seg[style_size:], dim=1).detach().cpu()
+                    visual_dict['pred_t'] = torch.argmax(pred_t, dim=1).detach().cpu()
+                    if self.args.rain:
+                        visual_dict['img_style'] = img_style.detach().cpu()
+                        visual_dict['pred_seg_style'] = torch.argmax(pred_seg[:style_size], dim=1).detach().cpu()
 
                 """***********************The Contrastive Learning Part***********************"""
                 """get target pseudo label"""
@@ -378,6 +445,7 @@ class Trainer_MCCL(Trainer_RAIN):
         if self.args.seg_pseudo:
             results['loss_pseudo'] = sum(loss_pseudo_list) / len(loss_pseudo_list)
 
+        results['visual_dict'] = visual_dict
         return results
 
     @timer.timeit
@@ -441,6 +509,9 @@ class Trainer_MCCL(Trainer_RAIN):
             if self.args.stdmin:
                 for i in range(len(train_results['stddev'])):
                     self.writer.add_scalar('StdDev/c{}'.format(i + 1), train_results['stddev'][i], epoch + 1)
+
+            if 'visual_dict' in train_results:
+                self._log_images(train_results['visual_dict'], epoch + 1)
 
             tobreak = self.stop_training(epoch, epoch_start, lge_dice)
 
