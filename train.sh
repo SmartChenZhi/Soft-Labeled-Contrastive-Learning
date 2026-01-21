@@ -32,7 +32,7 @@ python train_AdaptSeg.py \
   -restore_d weights/out_dis_AdaptSeg.mmwhs.s0.f0.v0.resnet50.lr0.00025.mmt0.9.raw.bs32.lr_dis1e-05.w_dis0.001.dls0.1.duf3.mutlvl.w_d_aux0.0002.wsegaux0.1.pt \
   -restore_d_aux weights/out_dis1_AdaptSeg.mmwhs.s0.f0.v0.resnet50.lr0.00025.mmt0.9.raw.bs32.lr_dis1e-05.w_dis0.001.dls0.1.duf3.mutlvl.w_d_aux0.0002.wsegaux0.1.pt
 
-python pretrain_RAIN.py -raw -task pretrain_RAIN \
+python pretrain_RAIN.py -raw -rev -task pretrain_RAIN -epochs 10000 -save_every_epochs 200\
  -data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA-master
 
 # SLCL

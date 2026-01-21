@@ -132,6 +132,11 @@ class Pretrainer_RAIN(Trainer_baseline):
                     stylized = torch.mean(stylized, dim=1)  # take the average of the 3 channels
                     stylized = torch.stack([stylized, stylized, stylized], dim=1)
                     stylized = crop_normalize(stylized, content_images, normalization=self.args.normalization)
+                num_vis = min(8, stylized.size(0))
+                self.writer.add_images('RAIN/Content', torch.clamp(content_images[:num_vis], 0, 1), epoch + 1)
+                self.writer.add_images('RAIN/Style', torch.clamp(style_images[:num_vis], 0, 1), epoch + 1)
+                self.writer.add_images('RAIN/Stylized', torch.clamp(stylized[:num_vis].detach().cpu(), 0, 1),
+                                       epoch + 1)
                 # print(f'content names: {c_names}')
                 # print(f'style names: {s_names}')
                 save_transferred_images_RAIN(stylized, c_names, s_names, epoch=epoch,
@@ -191,9 +196,9 @@ class Pretrainer_RAIN(Trainer_baseline):
             decoder_lr.append(self.optimizer.param_groups[0]['lr'])
             fc_encoder.append(self.optimizer_fc_encoder.param_groups[0]['lr'])
             fc_decoder.append(self.optimizer_fc_decoder.param_groups[0]['lr'])
-            # self.writer.add_scalars('Lr', {'Decoder': self.optimizer.param_groups[0]['lr'],
-            #                                'FC_encoder': self.optimizer_fc_encoder.param_groups[0]['lr'],
-            #                                'FC_decoder': self.optimizer_fc_decoder.param_groups[0]['lr']}, epoch + 1)
+            self.writer.add_scalars('Lr', {'Decoder': self.optimizer.param_groups[0]['lr'],
+                                           'FC_encoder': self.optimizer_fc_encoder.param_groups[0]['lr'],
+                                           'FC_decoder': self.optimizer_fc_decoder.param_groups[0]['lr']}, epoch + 1)
 
             mean_loss_c, mean_loss_s, mean_loss_l, mean_loss_r = self.train_epoch(epoch)
 
@@ -205,10 +210,10 @@ class Pretrainer_RAIN(Trainer_baseline):
                                 self.args.cw * mean_loss_c + self.args.sw * mean_loss_s)
             print(f"epoch: {epoch + 1:>4}, content {np.around(mean_loss_c, 3)}, style {np.around(mean_loss_s, 3)}, "
                   f"latent {np.around(mean_loss_l, 3)}, reconstruct {np.around(mean_loss_r, 3)}")
-            # self.writer.add_scalars('Loss', {'Content': mean_loss_c, 'Style': mean_loss_s, 'KL': mean_loss_l,
-            #                                  'Reconstruct': mean_loss_r,
-            #                                  'Combine': self.args.lw * mean_loss_l + self.args.rw * mean_loss_r +
-            #                                             self.args.cw * mean_loss_c + self.args.sw * mean_loss_s}, epoch + 1)
+            self.writer.add_scalars('Loss', {'Content': mean_loss_c, 'Style': mean_loss_s, 'KL': mean_loss_l,
+                                             'Reconstruct': mean_loss_r,
+                                             'Combine': self.args.lw * mean_loss_l + self.args.rw * mean_loss_r +
+                                                        self.args.cw * mean_loss_c + self.args.sw * mean_loss_s}, epoch + 1)
 
             if (datetime.now() - self.start_time).seconds > self.max_duration - self.max_epoch_time:
                 epoch = self.args.epochs - 1
@@ -226,13 +231,6 @@ class Pretrainer_RAIN(Trainer_baseline):
             if self.check_time_elapsed(epoch, epoch_start):
                 break
 
-        for epoch in range(len(loss_c)):
-            self.writer.add_scalars('Lr', {'Decoder': decoder_lr[epoch],
-                                           'FC_encoder': fc_encoder[epoch],
-                                           'FC_decoder': fc_decoder[epoch]}, epoch + 1)
-            self.writer.add_scalars('Loss', {'Content': loss_c[epoch], 'Style': loss_s[epoch], 'KL': loss_l[epoch],
-                                             'Reconstruct': loss_r[epoch],
-                                             'Combine': loss_combine[epoch]}, epoch + 1)
         self.writer.close()
         log_dir_new = '{}.loss{}'.format(self.log_dir, monitor)
         os.rename(self.log_dir, log_dir_new)

@@ -814,7 +814,7 @@ if __name__ == '__main__':
         ifasd=args.asd,
         ifhd95=args.hd95,
         save_csv=args.save_csv,
-        weight_dir=args.restore_from,
+        weight_dir=None,
         bs=args.batch_size,
         toprint=True,
         klc=args.klc,
