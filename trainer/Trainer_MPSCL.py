@@ -60,6 +60,63 @@ class Trainer_MPSCL(Trainer_Advent):
         self.mpcl_loss_trg = MPCL(self.device, num_class=self.args.num_classes, temperature=self.args.trg_temp,
                                   base_temperature=self.args.trg_base_temp, m=self.args.trg_margin)
 
+    def _log_images(self, img_s, labels_s, pred_s_main, img_t, pred_t_main, epoch):
+        num_samples = min(4, img_s.size(0))
+        img_s = img_s[:num_samples].detach().cpu()
+        labels_s = labels_s[:num_samples].detach().cpu()
+        pred_s = torch.argmax(pred_s_main[:num_samples], dim=1).detach().cpu()
+        img_t = img_t[:num_samples].detach().cpu()
+        pred_t = torch.argmax(pred_t_main[:num_samples], dim=1).detach().cpu()
+
+        def process_image(img):
+            if img.dim() == 3:
+                img = img.unsqueeze(1)
+            min_val = img.min()
+            max_val = img.max()
+            if max_val > min_val:
+                img = (img - min_val) / (max_val - min_val)
+            return img
+
+        def process_mask(mask):
+            if mask.dim() == 3:
+                mask = mask.unsqueeze(1)
+            mask = mask.float()
+            if self.args.num_classes > 1:
+                mask = mask / (self.args.num_classes - 1)
+            return mask
+
+        img_s_proc = process_image(img_s)
+        labels_s_proc = process_mask(labels_s)
+        pred_s_proc = process_mask(pred_s)
+        img_t_proc = process_image(img_t)
+        pred_t_proc = process_mask(pred_t)
+
+        pred_t_softmax = F.softmax(pred_t_main[:num_samples].detach().cpu(), dim=1)
+        uncertainty_map = prob_2_entropy(pred_t_softmax)
+        uncertainty_map = uncertainty_map.sum(dim=1, keepdim=True)
+        uncertainty_proc = process_image(uncertainty_map)
+
+        if img_s_proc.size(1) == 1:
+            img_s_proc = img_s_proc.repeat(1, 3, 1, 1)
+        if labels_s_proc.size(1) == 1:
+            labels_s_proc = labels_s_proc.repeat(1, 3, 1, 1)
+        if pred_s_proc.size(1) == 1:
+            pred_s_proc = pred_s_proc.repeat(1, 3, 1, 1)
+        if img_t_proc.size(1) == 1:
+            img_t_proc = img_t_proc.repeat(1, 3, 1, 1)
+        if pred_t_proc.size(1) == 1:
+            pred_t_proc = pred_t_proc.repeat(1, 3, 1, 1)
+        if uncertainty_proc.size(1) == 1:
+            uncertainty_proc = uncertainty_proc.repeat(1, 3, 1, 1)
+
+        step = epoch + 1
+        self.writer.add_images('Images/Source', img_s_proc, step)
+        self.writer.add_images('Images/Source_Label', labels_s_proc, step)
+        self.writer.add_images('Images/Source_Pred', pred_s_proc, step)
+        self.writer.add_images('Images/Target', img_t_proc, step)
+        self.writer.add_images('Images/Target_Pred', pred_t_proc, step)
+        self.writer.add_images('Images/Target_Uncertainty', uncertainty_proc, step)
+
     def train_epoch(self, epoch):
         print(f'start to train epoch: {epoch}')
         self.segmentor.train()
@@ -91,6 +148,8 @@ class Trainer_MPSCL(Trainer_Advent):
 
             pred_s_main, pred_s_aux, dcdr_ft_s = self.segmentor(img_s)
             pred_t_main, pred_t_aux, dcdr_ft_t = self.segmentor(img_t)
+            if len(loss_seg_list) == 0:
+                self._log_images(img_s, labels_s, pred_s_main, img_t, pred_t_main, epoch)
             loss_seg = loss_calc(pred_s_main, labels_s, self.device, False) + dice_loss(pred_s_main, labels_s)
             """save the main segmentation loss"""
             loss_seg_list.append(loss_seg.item())

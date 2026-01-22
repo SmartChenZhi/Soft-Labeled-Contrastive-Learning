@@ -32,22 +32,20 @@ python train_AdaptSeg.py \
   -restore_d weights/out_dis_AdaptSeg.mmwhs.s0.f0.v0.resnet50.lr0.00025.mmt0.9.raw.bs32.lr_dis1e-05.w_dis0.001.dls0.1.duf3.mutlvl.w_d_aux0.0002.wsegaux0.1.pt \
   -restore_d_aux weights/out_dis1_AdaptSeg.mmwhs.s0.f0.v0.resnet50.lr0.00025.mmt0.9.raw.bs32.lr_dis1e-05.w_dis0.001.dls0.1.duf3.mutlvl.w_d_aux0.0002.wsegaux0.1.pt
 
-python pretrain_RAIN.py -raw -rev -task pretrain_RAIN -epochs 10000 -save_every_epochs 200\
+python pretrain_RAIN.py -raw -rev -task pretrain_RAIN -restore -epochs 2000 -save_every_epochs 200\
  -data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA-master
 
 # SLCL
 python train_SLCL.py \
-  -raw \
-  -backbone resnet50 \
-  -data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA-master \
-  -train_with_s \
-  -train_with_t \
+  -raw -rev -epochs 400 -adjust_lr\
+  -backbone drunet \
+  -data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA-master
 
 python train_MCCL.py \
-  -lr 8e-4 -rev -CNR -CNR_w 4e-5 -clda -intra -phead\
-  -wtd_ave -part 2 -bs 16\
-  -backbone resnet50 \
-  -data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA_png/
+  -lr 8e-4 -rev -raw -CNR -CNR_w 4e-5 -clda -intra -phead -rain\
+  -wtd_ave -part 2 -bs 16 -epochs 200 -warmup_epochs 30\
+  -backbone drunet -thd 0.95 -seg_pseudo -clbg\
+  -data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA-master/
 
 python train_BCL.py \
   -raw -backbone resnet50 \

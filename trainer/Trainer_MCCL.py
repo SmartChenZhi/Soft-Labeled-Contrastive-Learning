@@ -387,9 +387,11 @@ class Trainer_MCCL(Trainer_RAIN):
                 for cent_t in centroid_t:
                     inter_cons_loss = inter_cons_loss + self.contrastive_loss.forward(centroid_s=centroid_s,
                                                                                       centroid_t=cent_t,
+                                                                                      bg=self.args.clbg,
                                                                                       split=self.args.contrast_split) / self.args.part
                     intra_cons_loss = intra_cons_loss + self.contrastive_loss.forward(centroid_s=cent_t,
                                                                                       centroid_t=centroid_t_aug,
+                                                                                      bg=self.args.clbg,
                                                                                       split=self.args.contrast_split) / self.args.part
                 inter_cons_loss_list.append(inter_cons_loss.item())
                 intra_cons_loss_list.append(intra_cons_loss.item())
