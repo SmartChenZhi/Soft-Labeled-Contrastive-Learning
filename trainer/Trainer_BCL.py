@@ -80,10 +80,13 @@ class Trainer_BCL(Trainer_baseline):
                                                num_workers=self.args.num_workers,
                                                pin_memory=self.args.pin_memory)
 
-    def update_dataloader(self, data_dir):
+    def update_dataloader(self, data_dir, target_data_dir=None):
         from torch.utils import data
         import math
         
+        if target_data_dir is None:
+            target_data_dir = data_dir
+
         content_dataset = None
         style_dataset = None
         
@@ -94,7 +97,7 @@ class Trainer_BCL(Trainer_baseline):
                                             aug_mode=self.args.aug_mode, normalization=self.args.normalization, fold=self.args.fold,
                                             aug_counter=False, domain='s', vert=False)
             style_dataset = DataGenerator(modality='bssfp' if self.args.rev else 'lge', crop_size=self.args.crop,
-                                          augmentation=self.args.aug_t, data_dir=data_dir, bs=self.args.bs, clahe=self.args.clahe,
+                                          augmentation=self.args.aug_t, data_dir=target_data_dir, bs=self.args.bs, clahe=self.args.clahe,
                                           aug_mode=self.args.aug_mode, normalization=self.args.normalization, fold=self.args.fold,
                                           aug_counter=False, domain='t', vert=False)
         elif self.dataset == 'mmwhs':
@@ -105,7 +108,7 @@ class Trainer_BCL(Trainer_baseline):
                                             aug_counter=False, fold=self.args.fold, domain='s',
                                             vert=False, split=self.args.split, val_num=self.args.val_num)
             style_dataset = DataGenerator(modality='ct' if self.args.rev else 'mr', crop_size=self.args.crop,
-                                          augmentation=self.args.aug_t, data_dir=data_dir, bs=self.args.bs,
+                                          augmentation=self.args.aug_t, data_dir=target_data_dir, bs=self.args.bs,
                                           aug_mode=self.args.aug_mode, normalization=self.args.normalization, clahe=self.args.clahe,
                                           aug_counter=False, fold=self.args.fold, domain='t',
                                           vert=False, split=self.args.split, val_num=self.args.val_num, M3ASdata=self.args.noM3AS)
@@ -121,13 +124,58 @@ class Trainer_BCL(Trainer_baseline):
             self.style_loader = data.DataLoader(style_dataset, batch_size=self.args.bs, shuffle=True,
                                                 num_workers=self.args.num_workers,
                                                 pin_memory=self.args.pin_memory)
-            print(f'Dataloaders updated from {data_dir}')
+            print(f'Dataloaders updated from {data_dir} and {target_data_dir}')
 
 
     def prepare_losses(self):
         from utils.loss import loss_entropy_BCL, bidirect_contrastive_loss_BCL
         self.LossEntropy = loss_entropy_BCL
         self.metric_loss = bidirect_contrastive_loss_BCL
+
+    def _log_images(self, img_s, label_s, pred_s, img_t, pred_t, epoch):
+        def process_image(img):
+            if img.dim() == 3:
+                img = img.unsqueeze(1)
+            img = img.float()
+            min_val = img.min()
+            max_val = img.max()
+            if max_val > min_val:
+                img = (img - min_val) / (max_val - min_val)
+            return img
+
+        def process_mask(mask):
+            if mask.dim() == 3:
+                mask = mask.unsqueeze(1)
+            mask = mask.float()
+            if self.args.num_classes > 1:
+                mask = mask / (self.args.num_classes - 1)
+            return mask
+
+        num_samples = min(4, img_s.size(0))
+
+        img_s_proc = process_image(img_s[:num_samples])
+        label_s_proc = process_mask(label_s[:num_samples])
+        pred_s_proc = process_mask(pred_s[:num_samples])
+        img_t_proc = process_image(img_t[:num_samples])
+        pred_t_proc = process_mask(pred_t[:num_samples])
+
+        if img_s_proc.size(1) == 1:
+            img_s_proc = img_s_proc.repeat(1, 3, 1, 1)
+        if label_s_proc.size(1) == 1:
+            label_s_proc = label_s_proc.repeat(1, 3, 1, 1)
+        if pred_s_proc.size(1) == 1:
+            pred_s_proc = pred_s_proc.repeat(1, 3, 1, 1)
+        if img_t_proc.size(1) == 1:
+            img_t_proc = img_t_proc.repeat(1, 3, 1, 1)
+        if pred_t_proc.size(1) == 1:
+            pred_t_proc = pred_t_proc.repeat(1, 3, 1, 1)
+
+        step = epoch + 1
+        self.writer.add_images('Images/Source', img_s_proc, step)
+        self.writer.add_images('Images/Source_Label', label_s_proc, step)
+        self.writer.add_images('Images/Source_Pred', pred_s_proc, step)
+        self.writer.add_images('Images/Target', img_t_proc, step)
+        self.writer.add_images('Images/Target_Pred', pred_t_proc, step)
 
     @timer.timeit
     def prepare_model(self):
@@ -224,7 +272,12 @@ class Trainer_BCL(Trainer_baseline):
                     # fuse the global and local mask and generate the pseudo label with the mask
                     mask, plabel = mask_fusion(output_i, mask, mask2)  # (H, W), (H, W)
                     
-                    acc, prop, cls_dict = Acc(plabel, label_i, num_cls=self.args.num_classes)
+                    if plabel.numel() == label_i.numel():
+                        acc, prop, cls_dict = Acc(plabel, label_i, num_cls=self.args.num_classes)
+                    else:
+                        print(f"Shape mismatch in Acc: plabel {plabel.shape}, label {label_i.shape}")
+                        acc, prop, cls_dict = 0.0, 0.0, {}
+                    
                     cnt = (plabel != 255).sum().item()
                     accs.update(acc, cnt)
                     props.update(prop, 1)
@@ -247,9 +300,9 @@ class Trainer_BCL(Trainer_baseline):
                         save_path = os.path.join(self.plabel_path, subfolder, f'{lab_name}.png')
                         
                         # Symlink image
-                        src_img = os.path.join(self.scratch, subfolder, f'{name_i}.png')
+                        src_img = os.path.abspath(os.path.join(self.scratch, subfolder, f'{name_i}.png'))
                         dst_img = os.path.join(self.plabel_path, subfolder, f'{name_i}.png')
-                        if not os.path.exists(dst_img):
+                        if not os.path.lexists(dst_img):
                             os.symlink(src_img, dst_img)
                     else:
                         img_name = name_i.split("/")[-1]
@@ -312,7 +365,7 @@ class Trainer_BCL(Trainer_baseline):
             # if cls_thres == 1.0:
             #    cls_thres = 0.999
             thres[k] = cls_thres  # store the threshold for each class index
-        if self.args.source == 'synthia':
+        if hasattr(self.args, 'source') and self.args.source == 'synthia':
             thres[9] = 1
             thres[14] = 1
             thres[16] = 1
@@ -328,6 +381,8 @@ class Trainer_BCL(Trainer_baseline):
         print(f'start to train epoch: {epoch}')
         results = EasyDict({'loss_source':[], 'loss_target': [], 'loss_entropy': [], 'loss_metric': []})
 
+        log_images = True
+
         for batch_source, batch_target in zip(self.content_loader, self.style_loader):
             self.segmentor.train()
             self.opt.zero_grad()
@@ -336,6 +391,13 @@ class Trainer_BCL(Trainer_baseline):
 
             pred_s, feature_s = self.segmentor.forward(img_s.cuda())
             pred_t, feature_t = self.segmentor.forward(img_t.cuda())
+
+            if log_images:
+                with torch.no_grad():
+                    pred_s_label = torch.argmax(pred_s.detach().cpu(), dim=1)
+                    pred_t_label = torch.argmax(pred_t.detach().cpu(), dim=1)
+                self._log_images(img_s, label_s, pred_s_label, img_t, pred_t_label, epoch)
+                log_images = False
 
             label_s = label_s.long().to(self.device)
             label_t = label_t.long().to(self.device)
@@ -384,7 +446,7 @@ class Trainer_BCL(Trainer_baseline):
                 self.cb_thres = self.gene_thres(
                     self.args.cb_prop + self.args.thres_inc * r)
                 self.save_pred(r)
-                self.update_dataloader(self.plabel_path)
+                self.update_dataloader(self.args.data_dir, self.plabel_path)
             else:
                 self.cb_thres = None
 

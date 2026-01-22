@@ -7,12 +7,12 @@ python train_baseline.py \
   -train_with_s -train_with_t -epochs 300
 
 python evaluator.py \
-  --backbone resnet50 \
+  --backbone drunet \
   --dataset mmwhs \
   --data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA-master \
-  --restore_from weights/best_Base.mmwhs.s0.f0.v0.resnet50.lr0.00025.mmt0.9.raw.bs32.trainWst.mnmx.e125.Scr0.801.pt \
+  --restore_from weights/best_MPSCL.mmwhs.s0.f0.v0.drunet.32.nb4.bd4.lr0.00025.mmt0.9.raw.bs32.lr_dis0.0001.w_dis0.001.w_mpscl_s1.t0.1.e379.Scr0.683.pt \
   --normalization minmax \
-  --modality ct \
+  --modality mr \
   --phase test \
   --raw
 
@@ -43,15 +43,14 @@ python train_SLCL.py \
 
 python train_MCCL.py \
   -lr 8e-4 -rev -raw -CNR -CNR_w 4e-5 -clda -intra -phead -rain\
-  -wtd_ave -part 2 -bs 16 -epochs 200 -warmup_epochs 30\
+  -wtd_ave -part 2 -bs 16 -epochs 400 -warmup_epochs 30\
   -backbone drunet -thd 0.95 -seg_pseudo -clbg\
   -data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA-master/
 
 python train_BCL.py \
-  -raw -backbone resnet50 \
-  -data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA-master \
-  -train_with_s -train_with_t \
-  -bs 8 -eval_bs 8
+  -rev \
+  -data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA_png \
+  -bs 16 -epochs 400
 
 python train_AdaptEvery.py \
   -backbone resnet50 \

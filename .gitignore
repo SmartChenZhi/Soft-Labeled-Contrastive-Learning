@@ -12,5 +12,6 @@ style_track/
 .vscode/
 prediction/
 pretrained/
+pseudo_labels/
 class_center_ct_f0.npy
 Unsupervised Domain Adaptation using Soft-Labeled Contrastive Learning with Reversed Monte Carlo Method for Cardiac Image Segmentation.pdf

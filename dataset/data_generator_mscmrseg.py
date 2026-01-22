@@ -182,12 +182,39 @@ class ImageProcessor:
         :param crop_size:
         :return:
         """
+        def pad_and_crop(v, c_size, dims):
+            h_idx, w_idx = dims
+            h, w = v.shape[h_idx], v.shape[w_idx]
+            ch, cw = h // 2, w // 2
+            sh, eh = ch - c_size, ch + c_size
+            sw, ew = cw - c_size, cw + c_size
+            
+            pad_h_top = max(0, -sh)
+            pad_h_bot = max(0, eh - h)
+            pad_w_left = max(0, -sw)
+            pad_w_right = max(0, ew - w)
+            
+            if pad_h_top > 0 or pad_h_bot > 0 or pad_w_left > 0 or pad_w_right > 0:
+                pad_width = [(0, 0)] * v.ndim
+                pad_width[h_idx] = (pad_h_top, pad_h_bot)
+                pad_width[w_idx] = (pad_w_left, pad_w_right)
+                v = np.pad(v, pad_width, mode='constant')
+                
+                # Update slices on padded volume
+                h, w = v.shape[h_idx], v.shape[w_idx]
+                ch, cw = h // 2, w // 2
+                sh, eh = ch - c_size, ch + c_size
+                sw, ew = cw - c_size, cw + c_size
+
+            slices = [slice(None)] * v.ndim
+            slices[h_idx] = slice(sh, eh)
+            slices[w_idx] = slice(sw, ew)
+            return v[tuple(slices)]
+
         if vol.ndim == 3 or vol.ndim == 2:
-            return np.array(vol[int(vol.shape[0] / 2) - crop_size: int(vol.shape[0] / 2) + crop_size,
-                            int(vol.shape[1] / 2) - crop_size: int(vol.shape[1] / 2) + crop_size, ])
+            return pad_and_crop(vol, crop_size, (0, 1))
         elif vol.ndim == 4:
-            return np.array(vol[:, int(vol.shape[1] / 2) - crop_size: int(vol.shape[1] / 2) + crop_size,
-                            int(vol.shape[2] / 2) - crop_size: int(vol.shape[2] / 2) + crop_size, ])
+            return pad_and_crop(vol, crop_size, (1, 2))
         else:
             raise ValueError(f'the number of dimension of the image should be among (2, 3, 4), {vol.ndim} detected.')
 

@@ -1247,10 +1247,10 @@ def thres_cb_plabel(P, thres_dic, num_cls=19, label=None):
     # value is greater than 1
     mask = torch.clip(mask.sum(dim=1), 0, 1).byte()  # (1, h, w)
 
-    # plabel = torch.where(mask, pred_label, 255)
-    plabel = torch.where(P > vec, )  # the coordinate where P > vec
     mask = mask.squeeze()  # (h, w)
-    plabel = plabel.squeeze()
+    pred_label = pred_label.squeeze().long()
+    plabel = torch.full_like(pred_label, 255, dtype=torch.long)
+    plabel = torch.where(mask.bool(), pred_label, plabel)
 
     return mask, plabel
 
