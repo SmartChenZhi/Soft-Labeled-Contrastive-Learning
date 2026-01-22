@@ -144,8 +144,11 @@ def cosine_similarity_BCL(class_list, label_resize, feature, label2, feature2, n
         if index != 255.:
             fg_mask = ((label_resize == index) * 1).cuda().detach()  # extract the mask for label == index
             # mask out the features correspond to certain class index and calculate the masked average feature
-            prototype = (fg_mask * feature).squeeze().reshape(ch, feature_h * feature_w).sum(
-                -1) / fg_mask.sum()
+            if fg_mask.sum() > 0:
+                prototype = (fg_mask * feature).squeeze().reshape(ch, feature_h * feature_w).sum(
+                    -1) / fg_mask.sum()
+            else:
+                prototype = torch.zeros(ch).cuda()
             prototypes[int(index)] = prototype  # (class_num, ch) register the prototypes into the list
 
     # (class_num, feature_h * feature_w) the cosine similarity between each class in one domain and each
