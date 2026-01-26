@@ -13,6 +13,7 @@ def add_experiment_args(parser: ArgumentParser) -> None:
     parser.add_argument("--pretrain", action="store_true", help="Enable pretraining")
     parser.add_argument("--ema_decay", default=0.99, type=float)
     parser.add_argument("--uda", action="store_true", help="Enable uda")
+    parser.add_argument("--backbone", default="resnet50", type=str)
 
     # Model parameters
     parser.add_argument("--model", default="BayeSeg", required=False)

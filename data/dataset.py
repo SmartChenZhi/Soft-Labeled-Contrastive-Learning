@@ -1,4 +1,5 @@
 import os
+import random
 from glob import glob
 from monai.data import CacheDataset, PatchDataset
 from data.transform import (
@@ -34,12 +35,14 @@ def build_Prostate(image_set, args):
 
     # split train and val set
     if image_set == "train":
+        random.shuffle(path_dicts)
         slice_transform = slice_transform_train
     elif image_set == "val":
         slice_transform = slice_transform_valid
     elif image_set == "test":
         slice_transform = slice_transform_valid    
     elif image_set == "target":
+        random.shuffle(path_dicts)
         slice_transform = slice_transform_train
 
     dataset = CacheDataset(

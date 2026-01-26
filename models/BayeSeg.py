@@ -17,10 +17,13 @@ class BayeSeg(nn.Module):
 
         self.res_shape = ResNet_shape(num_out_ch=2)
         self.res_appear = ResNet_appearance(num_out_ch=2, num_block=6, bn=True)
-        self.unet = get_efficientunet_b2(
-            out_channels=2 * args.num_classes, pretrained=False
-        )
-        #self.unet = UNet(args,base_channels=45,output_channels=4,input_channels=3)
+        
+        if self.args.backbone == "unet":
+            self.unet = UNet(args,base_channels=45,output_channels=4,input_channels=3)
+        else:
+            self.unet = get_efficientunet_b2(
+                out_channels=2 * args.num_classes, pretrained=False
+            )
 
         self.softmax = nn.Softmax(dim=1)
 
@@ -28,27 +31,6 @@ class BayeSeg(nn.Module):
         Dx[:, :, 1, 1] = 1
         Dx[:, :, 1, 0] = Dx[:, :, 1, 2] = Dx[:, :, 0, 1] = Dx[:, :, 2, 1] = -1 / 4
         self.Dx = nn.Parameter(data=Dx, requires_grad=False)
-
-        #self.load_pretrained_parts("logs/model2/best_checkpoint.pth")
-
-
-    def load_pretrained_parts(self, checkpoint_path):
-        for param in self.res_shape.parameters():
-            param.requires_grad = False
-        for param in self.res_appear.parameters():
-            param.requires_grad = False
-
-        # Load checkpoint
-        checkpoint = torch.load(checkpoint_path)
-
-        # Extract model state_dict
-        pretrained_state_dict = checkpoint["model"]
-
-        # Load res_shape and res_appear weights
-        self.res_shape.load_state_dict({k.replace("res_shape.", ""): v 
-                                        for k, v in pretrained_state_dict.items() if k.startswith("res_shape.")})
-        self.res_appear.load_state_dict({k.replace("res_appear.", ""): v 
-                                         for k, v in pretrained_state_dict.items() if k.startswith("res_appear.")})
 
     @staticmethod
     def sample_normal_jit(mu, log_var):
@@ -72,8 +54,10 @@ class BayeSeg(nn.Module):
         return x, mu_x, log_var_x
 
     def generate_z(self, x):
-        #feature = self.unet(x.repeat(1, 3, 1, 1))
-        feature = self.unet(x.repeat(1, 3, 1, 1))["pred_masks"]
+        if self.args.backbone == "unet":
+            feature = self.unet(x.repeat(1, 3, 1, 1))["pred_masks"]
+        else:
+            feature = self.unet(x.repeat(1, 3, 1, 1))
         mu_z, log_var_z = torch.chunk(feature, 2, dim=1)
         log_var_z = torch.clamp(log_var_z, -20, 0)
         z, _ = self.sample_normal_jit(mu_z, log_var_z)

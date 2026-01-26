@@ -1,8 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from efficientunet import get_efficientunet_b2
-
 from .Basic_module import Criterion, Visualization
 from .ResNet import ResNet_appearance, ResNet_shape
 from .Unet import UNet
@@ -18,12 +16,16 @@ class udaBayeSeg(nn.Module):
         self.res_shape = ResNet_shape(num_out_ch=2)
         self.res_appear_s = ResNet_appearance(num_out_ch=2, num_block=6, bn=True)
         self.res_appear_t = ResNet_appearance(num_out_ch=2, num_block=6, bn=True)
-        # self.unet = get_efficientunet_b2(
-        #     out_channels=2 * args.num_classes, pretrained=False
-        # )
-        self.unet = UNet(args,base_channels=45,output_channels=4,input_channels=1)
-        self.unet_teacher = UNet(args,base_channels=45,output_channels=4,input_channels=1)
-        self.unet_teacher.load_state_dict(self.unet.state_dict())  # 初始同步
+        
+        # Consistent with BayeSeg logic, but adapted for single channel input from ResNet_shape output if needed,
+        # or assuming the UNet adaptation in BayeSeg. 
+        # In BayeSeg, ResNet_shape outputs 2 channels (mu, logvar), then sample x (1 channel).
+        # So UNet input_channels=1 is correct.
+        self.unet = UNet(args, base_channels=45, output_channels=4, input_channels=1)
+        self.unet_teacher = UNet(args, base_channels=45, output_channels=4, input_channels=1)
+        
+        # Initialize teacher with student weights
+        self.unet_teacher.load_state_dict(self.unet.state_dict())
         self.ema_decay = args.ema_decay
         for param in self.unet_teacher.parameters():
             param.requires_grad = False
@@ -35,31 +37,10 @@ class udaBayeSeg(nn.Module):
         Dx[:, :, 1, 0] = Dx[:, :, 1, 2] = Dx[:, :, 0, 1] = Dx[:, :, 2, 1] = -1 / 4
         self.Dx = nn.Parameter(data=Dx, requires_grad=False)
 
-        #self.load_pretrained_parts("logs/model2/best_checkpoint.pth")
-
     def update_teacher(self):
-        # 用 EMA 更新教师模型参数
+        # EMA update for teacher model
         for student_param, teacher_param in zip(self.unet.parameters(), self.unet_teacher.parameters()):
             teacher_param.data.mul_(self.ema_decay).add_((1 - self.ema_decay) * student_param.data)
-
-
-    def load_pretrained_parts(self, checkpoint_path):
-        for param in self.res_shape.parameters():
-            param.requires_grad = False
-        for param in self.res_appear.parameters():
-            param.requires_grad = False
-
-        # Load checkpoint
-        checkpoint = torch.load(checkpoint_path)
-
-        # Extract model state_dict
-        pretrained_state_dict = checkpoint["model"]
-
-        # Load res_shape and res_appear weights
-        self.res_shape.load_state_dict({k.replace("res_shape.", ""): v 
-                                        for k, v in pretrained_state_dict.items() if k.startswith("res_shape.")})
-        self.res_appear.load_state_dict({k.replace("res_appear.", ""): v 
-                                         for k, v in pretrained_state_dict.items() if k.startswith("res_appear.")})
 
     @staticmethod
     def sample_normal_jit(mu, log_var):
@@ -95,9 +76,9 @@ class udaBayeSeg(nn.Module):
         log_var_z = torch.clamp(log_var_z, -20, 0)
         z, _ = self.sample_normal_jit(mu_z, log_var_z)
         if self.training:
-            return F.gumbel_softmax(z, dim=1), F.gumbel_softmax(mu_z, dim=1), log_var_z
+            return F.gumbel_softmax(z, dim=1), F.gumbel_softmax(mu_z, dim=1), log_var_z, z
         else:
-            return self.softmax(z), self.softmax(mu_z), log_var_z
+            return self.softmax(z), self.softmax(mu_z), log_var_z, z
         
     def generate_z_dummy(self, x):
         feature = self.unet_teacher(x)["pred_masks"]
@@ -110,13 +91,12 @@ class udaBayeSeg(nn.Module):
         x, mu_x, log_var_x = self.generate_x(samples)
         if isSource:
             m, mu_m, log_var_m = self.generate_m_s(samples)
-            z, mu_z, log_var_z = self.generate_z(x)
+            z, mu_z, log_var_z, logits_z = self.generate_z(x)
         else:
             m, mu_m, log_var_m = self.generate_m_t(samples)
-            z, mu_z, log_var_z = self.generate_z(x)
+            z, mu_z, log_var_z, logits_z = self.generate_z(x)
             z_dummy, mu_z_dummy, log_var_z_dummy = self.generate_z_dummy(x)
         
-
         K = self.num_classes
         _, _, W, H = samples.shape
 
@@ -216,6 +196,7 @@ class udaBayeSeg(nn.Module):
         pred = z if self.training else mu_z
         out = {
             "pred_masks": pred,
+            "pred_logits": logits_z,
             "kl_y": kl_y,
             "kl_mu_z": kl_mu_z,
             "kl_sigma_z": kl_sigma_z,
@@ -249,7 +230,7 @@ class udaBayeSeg(nn.Module):
     def forward(self, samples: torch.Tensor, samples_t: torch.Tensor):
         out_s = self.getoutput(samples, True)
         out_t = self.getoutput(samples_t, False)
-        out = [out_s,out_t]
+        out = [out_s, out_t]
         return out
 
 
@@ -257,7 +238,7 @@ class udaBayeSeg_Criterion(Criterion):
     def __init__(self, args):
         super(udaBayeSeg_Criterion, self).__init__(args)
         self.bayes_loss_coef = args.bayes_loss_coef
-        self.mse = nn.MSELoss()
+        self.kl_loss = nn.KLDivLoss(reduction="batchmean")
 
     def loss_Bayes(self, outputs):
         N = outputs["normalization"]
@@ -290,7 +271,7 @@ class udaBayeSeg_Criterion(Criterion):
             "rho": torch.mean(pred["rho"]),
             "omega": torch.mean(pred["omega"]),
             "upsilon": torch.mean(pred["upsilon"]),
-            "loss_Dice_CE_t": self.mse(pred_t["pred_masks"], pred_t["dummy_label"]),
+            "loss_Dice_CE_t": self.kl_loss(F.log_softmax(pred_t["pred_logits"], dim=1), pred_t["dummy_label"].detach()),
             "loss_Bayes_t": self.loss_Bayes(pred_t),
         }
         losses = (

@@ -5,7 +5,6 @@ import json
 import torch
 import random
 import datetime
-import argparse
 import numpy as np
 from pathlib import Path
 import torch.backends.cudnn as cudnn
@@ -15,16 +14,14 @@ from torch.utils.data import DataLoader
 from models import build_model
 from data import build_dataset
 from utils import get_logger, MetricLogger, SmoothedValue
-from args import add_management_args, add_experiment_args, add_bayes_args
 
-
-class Trainer:
+class Trainer_udaBayeSeg:
     def __init__(self, args):
         self.args = args
         self.output_dir = Path(args.output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        self.logger = get_logger(name="BayeSeg", root=self.output_dir)
+        self.logger = get_logger(name="udaBayeSeg", root=self.output_dir)
         self.logger.info(args)
 
         random.seed(args.seed)
@@ -146,13 +143,11 @@ class Trainer:
             start = time.time()
             data_dict = next(train_iterator)
             samples = data_dict["image"].to(self.device)
-            ori_samples = data_dict["ori_image"].to(self.device)
+            # ori_samples = data_dict["ori_image"].to(self.device) # Not used in udaBayeSeg unless for vis
             targets = data_dict["label"].to(self.device)
             datatime = time.time() - start
 
-            if self.args.model == "vqBayeSeg":
-                outputs = self.model(samples,ori_samples)
-            elif self.args.uda:
+            if self.args.uda:
                 try:
                     target_data_dict = next(target_iterator)
                 except StopIteration:
@@ -160,15 +155,16 @@ class Trainer:
                     target_iterator = iter(self.target_loader)
                     target_data_dict = next(target_iterator)
                 samples_t = target_data_dict["image"].to(self.device)
-                outputs = self.model(samples,samples_t)
+                outputs = self.model(samples, samples_t)
             else:
-                outputs = self.model(samples)
-            if self.args.model == "vqUNet" or self.args.model == "vqBayeSeg":
-                losses, loss_dict = self.criterion(outputs, targets, ori_samples)
-            elif self.args.model == "vqvae":
-                losses, loss_dict = self.criterion(outputs, samples)
-            else:
-                losses, loss_dict = self.criterion(outputs, targets)
+                # Fallback if UDA is not enabled but using this trainer?
+                # Probably shouldn't happen for udaBayeSeg but just in case
+                # Note: udaBayeSeg forward expects 2 args. 
+                # If uda is false, we might need to handle it or error out.
+                # But let's assume uda is true.
+                raise ValueError("Trainer_udaBayeSeg requires args.uda to be True")
+
+            losses, loss_dict = self.criterion(outputs, targets)
             
             if not torch.isfinite(losses):
                 print("Loss is {}, stopping training".format(losses))
@@ -183,7 +179,6 @@ class Trainer:
             # 更新教师模型
             if self.args.uda:
                 self.model.update_teacher()
-
 
             metric_logger.update(loss=losses.item(), **loss_dict)
             metric_logger.update(lr=self.optimizer.param_groups[0]["lr"])
@@ -232,30 +227,21 @@ class Trainer:
             start = time.time()
             data_dict = next(valid_iterator)
             samples = data_dict["image"].to(self.device)
-            ori_samples = data_dict["ori_image"].to(self.device)
             targets = data_dict["label"].to(self.device)
             datatime = time.time() - start
 
-            if self.args.model == "vqBayeSeg":
-                outputs = self.model(samples,ori_samples)
-            elif self.args.uda:
+            if self.args.uda:
                 try:
                     target_data_dict = next(target_iterator)
                 except StopIteration:
-                    # 重新创建迭代器
                     target_iterator = iter(self.target_loader)
                     target_data_dict = next(target_iterator)
                 samples_t = target_data_dict["image"].to(self.device)
-                outputs = self.model(samples,samples_t)
+                outputs = self.model(samples, samples_t)
             else:
-                outputs = self.model(samples)
-            if self.args.model == "vqUNet" or self.args.model == "vqBayeSeg":
-                losses, loss_dict = self.criterion(outputs, targets, ori_samples)
-            elif self.args.model == "vqvae":
-                losses, loss_dict = self.criterion(outputs, samples)
-            else:
-                losses, loss_dict = self.criterion(outputs, targets)
-            
+                 raise ValueError("Trainer_udaBayeSeg requires args.uda to be True")
+
+            losses, loss_dict = self.criterion(outputs, targets)
 
             metric_logger.update(loss=losses.item(), **loss_dict)
             metric_logger.update(lr=self.optimizer.param_groups[0]["lr"])
@@ -274,18 +260,13 @@ class Trainer:
                 target_list.append(targets[0])
                 if self.args.uda:
                     sample_list_t.append(samples_t[0])
+                    # outputs is [out_s, out_t]
                     output_list.append(
                         torch.argmax(outputs[0]["pred_masks"][0], dim=0, keepdim=True)
                     )
                     output_list_t.append(
                         torch.argmax(outputs[1]["pred_masks"][0], dim=0, keepdim=True)
                     )
-                else:
-                    output_list.append(
-                        torch.argmax(outputs["pred_masks"][0], dim=0, keepdim=True)
-                    )
-                
-                
 
         total_time = time.time() - start_time
         total_time_str = str(datetime.timedelta(seconds=int(total_time)))
@@ -297,15 +278,10 @@ class Trainer:
         self.logger.info("Averaged stats:")
         self.logger.info(metric_logger)
         stats = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
-        if self.args.model != "vqvae":
-            self.writer.add_scalar("loss_total", stats["loss"], self.epoch)
-            self.writer.add_scalar("Dice", stats["Dice"], self.epoch)
-            self.writer.add_scalar("loss_Dice_CE", stats["loss_Dice_CE"], self.epoch)
-        if self.args.model in ("vqUNet","vqBayeSeg","vqvae"):
-            self.writer.add_scalar("loss_recon", stats["loss_recon"], self.epoch)
-            self.writer.add_scalar("loss_vq", stats["loss_vq"], self.epoch)
-        if self.args.model == "vqvae":
-            self.writer.add_scalar("PSNR", stats["Dice"], self.epoch)
+        
+        self.writer.add_scalar("loss_total", stats["loss"], self.epoch)
+        self.writer.add_scalar("Dice", stats["Dice"], self.epoch)
+        self.writer.add_scalar("loss_Dice_CE", stats["loss_Dice_CE"], self.epoch)
         
         if self.args.uda:
             self.visualizer(
@@ -316,15 +292,6 @@ class Trainer:
                 torch.stack(target_list),
                 outputs[0]["visualize"],
                 outputs[1]["visualize"],
-                self.epoch,
-                self.writer,
-            )
-        else:
-            self.visualizer(
-                torch.stack(sample_list),
-                torch.stack(output_list),
-                torch.stack(target_list),
-                outputs["visualize"],
                 self.epoch,
                 self.writer,
             )
@@ -355,13 +322,3 @@ class Trainer:
 
         for path in checkpoint_paths:
             torch.save(checkpoint_dict, path)
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser("BayeSeg training", allow_abbrev=False)
-    add_experiment_args(parser)
-    add_management_args(parser)
-    add_bayes_args(parser)
-    args = parser.parse_args()
-    trainer = Trainer(args)
-    trainer.train()

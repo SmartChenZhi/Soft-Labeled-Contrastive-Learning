@@ -49,7 +49,8 @@ class Tester:
         self.model.to(self.device)
         self.model_type = args.model
 
-        checkpoint_path = os.path.join(self.checkpoint_dir, "checkpoint1200.pth")
+        #checkpoint_path = os.path.join(self.checkpoint_dir, "checkpoint1200.pth")
+        checkpoint_path = self.checkpoint_dir
         checkpoint = torch.load(checkpoint_path, map_location="cpu")
         self.model.load_state_dict(checkpoint["model"])
         print("best epoch:",checkpoint["epoch"])
