@@ -5,6 +5,7 @@ import json
 import torch
 import random
 import datetime
+import argparse
 import numpy as np
 from pathlib import Path
 import torch.backends.cudnn as cudnn
@@ -14,6 +15,7 @@ from torch.utils.data import DataLoader
 from models import build_model
 from data import build_dataset
 from utils import get_logger, MetricLogger, SmoothedValue
+from args import add_management_args, add_experiment_args, add_bayes_args
 
 class Trainer_udaBayeSeg:
     def __init__(self, args):
@@ -322,3 +324,12 @@ class Trainer_udaBayeSeg:
 
         for path in checkpoint_paths:
             torch.save(checkpoint_dict, path)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser("udaBayeSeg training", allow_abbrev=False)
+    add_experiment_args(parser)
+    add_management_args(parser)
+    add_bayes_args(parser)
+    args = parser.parse_args()
+    trainer = Trainer_udaBayeSeg(args)
+    trainer.train()

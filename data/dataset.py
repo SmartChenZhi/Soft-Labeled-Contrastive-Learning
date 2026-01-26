@@ -15,8 +15,14 @@ def build_Prostate(image_set, args):
         args.dataset_dir
     ), f"provided data path {args.dataset_dir} does not exist"
 
+    is_uda = getattr(args, "uda", False)
+
     if image_set == "target":
         file_paths = glob(os.path.join(args.dataset_dir, "BIDMC", "train", "*.nii.gz"))
+    elif is_uda and image_set == "val":
+        file_paths = glob(os.path.join(args.dataset_dir, "BIDMC", "val", "*.nii.gz"))
+    elif is_uda and image_set == "test":
+        file_paths = glob(os.path.join(args.dataset_dir, "BIDMC", "test", "*.nii.gz"))
     else:
         file_paths = glob(os.path.join(args.dataset_dir, "RUNMC", image_set, "*.nii.gz"))
 

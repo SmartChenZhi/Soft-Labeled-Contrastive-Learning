@@ -60,4 +60,5 @@ python train_AdaptEvery.py \
 
 tensorboard  --port 6006 --logdir logs/model_unet
 python train.py --model BayeSeg --output_dir logs/model_unet --backbone unet
+python trainer/Trainer_udaBayeSeg.py --model udaBayeSeg --output_dir logs/udaBayeSeg --uda
 python test.py --model BayeSeg --checkpoint_dir logs/model_unet/best_checkpoint.pth
