@@ -56,3 +56,6 @@ python train_AdaptEvery.py \
   -backbone resnet50 \
   -raw -data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA-master \
   -train_with_s -train_with_t
+
+
+python train.py --model BayeSeg --output_dir logs/model
