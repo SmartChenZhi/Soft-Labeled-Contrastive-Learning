@@ -1,4 +1,5 @@
 import torch
+import config
 from monai.data.meta_obj import get_track_meta
 from monai.transforms.utils import generate_spatial_bounding_box
 from monai.utils.type_conversion import convert_data_type, convert_to_tensor
@@ -126,7 +127,7 @@ slice_transform_train = Compose(
     [
         Resized(
             keys=["image", "label", "ori_image"],
-            spatial_size=[192, 192],
+            spatial_size=[config.INPUT_SIZE, config.INPUT_SIZE],
             mode=("bilinear", "nearest","bilinear"),
         ),
         RandAffined(
@@ -157,7 +158,7 @@ slice_transform_valid = Compose(
     [
         Resized(
             keys=["image", "label", "ori_image"],
-            spatial_size=[192, 192],
+            spatial_size=[config.INPUT_SIZE, config.INPUT_SIZE],
             mode=("bilinear", "nearest","bilinear"),
         ),
         NormalizeIntensityd(keys=["image"]),

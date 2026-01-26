@@ -19,7 +19,7 @@ LEARNING_RATE_EPS = 20
 POWER = 0.9
 RANDOM_SEED = 1234
 
-INPUT_SIZE = 224
+INPUT_SIZE = 192
 DATA_DIRECTORY = "../../data/mscmrseg/origin"
 RAW_DATA_DIRECTORY = "../../data/mscmrseg/raw_data"
 EPOCHS = 1000

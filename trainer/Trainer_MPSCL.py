@@ -298,10 +298,17 @@ class Trainer_MPSCL(Trainer_Advent):
             train_results = self.train_epoch(epoch)
 
             results = self.eval(modality='target', phase='valid')
-            lge_dice = np.round((results['dc'][0] + results['dc'][2] + results['dc'][4]) / 3, 3)
+            if len(results['dc']) == 2:
+                 lge_dice = results['dc'][0]
+            else:
+                 lge_dice = np.round((results['dc'][0] + results['dc'][2] + results['dc'][4]) / 3, 3)
+            
             if self.args.evalT:
                 results = self.eval(modality='target', phase='test')
-                lge_dice_test = np.round((results['dc'][0] + results['dc'][2] + results['dc'][4]) / 3, 3)
+                if len(results['dc']) == 2:
+                     lge_dice_test = results['dc'][0]
+                else:
+                     lge_dice_test = np.round((results['dc'][0] + results['dc'][2] + results['dc'][4]) / 3, 3)
 
             """record all the experiment results into the tensorboard"""
             print("Writing summary")

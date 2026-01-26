@@ -119,6 +119,10 @@ class Trainer(ABC):
             self.dataset = 'mmwhs'
             self.trgt_modality = 'ct' if self.args.rev else 'mr'
             self.src_modality = 'ct' if not self.args.rev else 'mr'
+        elif 'Processed_data_nii_uda' in self.args.data_dir:
+            self.dataset = 'Processed_data_nii_uda'
+            self.trgt_modality = 'BIDMC'
+            self.src_modality = 'RUNMC'
         else:
             raise NotImplementedError
 

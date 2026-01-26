@@ -74,6 +74,9 @@ class Trainer_baseline(Trainer):
                 self.scratch, self.scratch_raw, self.content_loader, self.style_loader = prepare_dataset_mmwhs_raw(self.args)
             else:
                 self.scratch, self.scratch_raw, self.content_loader, self.style_loader = prepare_dataset_mmwhs(self.args)
+        elif self.dataset == 'Processed_data_nii_uda':
+            from dataset.data_generator_processed_nii import prepare_dataset as prepare_dataset_processed
+            self.scratch, self.scratch_raw, self.content_loader, self.style_loader = prepare_dataset_processed(self.args)
         else:
             raise NotImplementedError
 

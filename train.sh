@@ -47,11 +47,6 @@ python train_MCCL.py \
   -backbone drunet -thd 0.95 -seg_pseudo -clbg\
   -data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA-master/
 
-python train_BCL.py \
-  -rev \
-  -data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA_png \
-  -bs 16 -epochs 400
-
 python train_AdaptEvery.py \
   -backbone resnet50 \
   -raw -data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA-master \
@@ -62,3 +57,6 @@ tensorboard  --port 6006 --logdir logs/model_unet
 python train.py --model BayeSeg --output_dir logs/model_unet --backbone unet
 python trainer/Trainer_udaBayeSeg.py --model udaBayeSeg --output_dir logs/udaBayeSeg --uda
 python test.py --model BayeSeg --checkpoint_dir logs/model_unet/best_checkpoint.pth
+
+python train_MPSCL.py -data_dir /root/SLCL/Processed_data_nii_uda\
+  -uda -backbone drunet -epochs 400  -normalization zscore

@@ -1,5 +1,6 @@
 from datetime import datetime
 import os
+from glob import glob
 
 import cv2
 from matplotlib.colors import ListedColormap
@@ -96,6 +97,11 @@ class Evaluator:
                                                           ifhd95=ifhd95, crop_size=crop_size, pred_index=pred_index,
                                                           fold_num=fold_num, split=split, val_num=val_num, percent=percent,
                                                           save_pred=save_pred, volume=volume, verbose=verbose, save_dir=save_dir)
+        elif self._dataset == 'Processed_data_nii_uda':
+            measures = self.evaluate_single_dataset_processed(seg_model, model_name=model_name, modality=modality,
+                                                              phase=phase, ifhd=ifhd, ifasd=ifasd, bs=bs, toprint=toprint,
+                                                              crop_size=crop_size, save_pred=save_pred, save_dir=save_dir,
+                                                              verbose=verbose)
         else:
             print(self._dataset)
             raise NotImplementedError
@@ -353,6 +359,117 @@ class Evaluator:
         else:
             return measures
 
+
+    def evaluate_single_dataset_processed(self, seg_model, model_name='best_model', modality='BIDMC', phase='test',
+                                          ifhd=True, ifasd=True, bs=32, toprint=True, crop_size=224,
+                                          save_pred=False, save_dir='prediction/Processed', verbose=False):
+        print(f'Eval on Processed_data_nii_uda: {modality} {phase}')
+        device = get_device()
+        seg_model.eval()
+        seg_model.to(device)
+
+        data_path = os.path.join(self._data_dir, modality, phase)
+        if not os.path.exists(data_path):
+             print(f"Warning: {data_path} does not exist")
+             return {'dc': [0]*2, 'hd': [0]*2, 'asd': [0]*2}
+
+        file_paths = glob(os.path.join(data_path, "*.nii.gz"))
+        image_paths = []
+        label_paths = []
+        for path in file_paths:
+            filename = os.path.basename(path)
+            if "seg" in filename.lower() or "label" in filename.lower():
+                label_paths.append(path)
+            else:
+                image_paths.append(path)
+        
+        image_paths.sort()
+        label_paths.sort()
+
+        prostate_dc = []
+        prostate_hd = []
+        prostate_asd = []
+
+        with torch.no_grad():
+            for img_path, label_path in zip(image_paths, label_paths):
+                img_obj = sitk.ReadImage(img_path)
+                img = sitk.GetArrayFromImage(img_obj)
+                spacing = img_obj.GetSpacing()
+                
+                lbl_obj = sitk.ReadImage(label_path)
+                lbl = sitk.GetArrayFromImage(lbl_obj)
+
+                if self._normalization == 'minmax':
+                    img = (img - img.min()) / (img.max() - img.min() + 1e-8)
+                elif self._normalization == 'zscore':
+                    img = (img - img.mean()) / (img.std() + 1e-8)
+                
+                preds = []
+                for i in range(0, len(img), bs):
+                    batch_imgs = img[i:min(i+bs, len(img))]
+                    batch_imgs_resized = []
+                    for slc in batch_imgs:
+                         if slc.shape[0] != crop_size or slc.shape[1] != crop_size:
+                             slc = cv2.resize(slc, (crop_size, crop_size), interpolation=cv2.INTER_LINEAR)
+                         batch_imgs_resized.append(slc)
+                    batch_imgs = np.array(batch_imgs_resized)
+                    
+                    batch_tensor = torch.from_numpy(batch_imgs).float().unsqueeze(1).to(device)
+                    
+                    pred = seg_model(batch_tensor)
+                    if isinstance(pred, tuple):
+                        pred = pred[0]
+                    elif isinstance(pred, dict):
+                         pred = pred["pred_masks"]
+                    
+                    pred = torch.softmax(pred, dim=1)
+                    preds.append(pred.cpu().numpy())
+                
+                preds = np.concatenate(preds, axis=0)
+                pred_label = np.argmax(preds, axis=1)
+                
+                if pred_label.shape[1:] != lbl.shape[1:]:
+                    pred_label_resized = []
+                    for slc in pred_label:
+                        slc = cv2.resize(slc.astype(float), (lbl.shape[2], lbl.shape[1]), interpolation=cv2.INTER_NEAREST)
+                        pred_label_resized.append(slc)
+                    pred_label = np.array(pred_label_resized).astype(np.uint8)
+
+                # For prostate segmentation, we only care about the foreground (class 1)
+                res = metrics(lbl, pred_label, apply_hd=ifhd, apply_asd=ifasd, pat_id="unknown", modality=modality,
+                              class_name=["prostate"], spacing=(spacing[2], spacing[0], spacing[1]))
+                
+                prostate_dc.append(res['prostate'][0])
+                if res['prostate'][1] != -1: prostate_hd.append(res['prostate'][1])
+                if res['prostate'][2] != -1: prostate_asd.append(res['prostate'][2])
+        
+        return self.calculate_messages_processed(prostate_dc, prostate_hd, prostate_asd, toprint, modality, phase, ifhd, ifasd)
+
+    def calculate_messages_processed(self, prostate_dc, prostate_hd, prostate_asd, toprint, modality, phase, ifhd, ifasd):
+        mean_dc = np.around(np.mean(np.array(prostate_dc)), 3)
+        std_dc = np.around(np.std(np.array(prostate_dc)), 3)
+        
+        if toprint:
+            print(f"Modality: {modality}, Phase: {phase}")
+            print(f"Ave Prostate DC: {mean_dc:.3f}, {std_dc:.3f}")
+
+        mean_hd, std_hd = 0, 0
+        if ifhd:
+            mean_hd = np.around(np.mean(np.array(prostate_hd)), 3)
+            std_hd = np.around(np.std(np.array(prostate_hd)), 3)
+            if toprint:
+                print(f"Ave Prostate HD: {mean_hd:.3f}, {std_hd:.3f}")
+
+        mean_asd, std_asd = 0, 0
+        if ifasd:
+            mean_asd = np.around(np.mean(np.array(prostate_asd)), 3)
+            std_asd = np.around(np.std(np.array(prostate_asd)), 3)
+            if toprint:
+                print(f"Ave Prostate ASD: {mean_asd:.3f}, {std_asd:.3f}")
+        
+        return {'dc': [mean_dc, std_dc],
+                'hd': [mean_hd, std_hd],
+                'asd': [mean_asd, std_asd]}
 
     def evaluate_single_dataset_mmwhs(self, seg_model, model_name='best_model', modality='mr', phase='test', ifhd=True,
                                       ifasd=True, save_csv=False, save_hd=False, weight_dir=None, bs=32, toprint=True,
