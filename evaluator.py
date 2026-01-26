@@ -368,7 +368,8 @@ class Evaluator:
         seg_model.eval()
         seg_model.to(device)
 
-        data_path = os.path.join(self._data_dir, modality, phase)
+        phase_dir = 'val' if phase == 'valid' else phase
+        data_path = os.path.join(self._data_dir, modality, phase_dir)
         if not os.path.exists(data_path):
              print(f"Warning: {data_path} does not exist")
              return {'dc': [0]*2, 'hd': [0]*2, 'asd': [0]*2}

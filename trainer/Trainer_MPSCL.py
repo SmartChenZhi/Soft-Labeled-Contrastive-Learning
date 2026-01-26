@@ -25,6 +25,7 @@ class Trainer_MPSCL(Trainer_Advent):
     def add_additional_arguments(self):
         super(Trainer_MPSCL, self).add_additional_arguments()
         self.parser.add_argument('-adjust_lr', action='store_true')
+        self.parser.add_argument('-uda', action='store_true')
 
         self.parser.add_argument('-src_temp', type=float, default=1)
         self.parser.add_argument('-src_base_temp', type=float, default=1)
@@ -143,12 +144,17 @@ class Trainer_MPSCL(Trainer_Advent):
             img_s, labels_s, names = batch_content
             img_s, labels_s = img_s.to(self.device, non_blocking=self.args.pin_memory), \
                               labels_s.to(self.device, non_blocking=self.args.pin_memory)
+            if labels_s.dim() == 4 and labels_s.size(1) == 1:
+                labels_s = labels_s.squeeze(1)
             img_t, labels_t, namet = batch_style
             img_t = img_t.to(self.device, non_blocking=self.args.pin_memory)
 
             pred_s_main, pred_s_aux, dcdr_ft_s = self.segmentor(img_s)
             pred_t_main, pred_t_aux, dcdr_ft_t = self.segmentor(img_t)
             if len(loss_seg_list) == 0:
+                print("MPSCL debug - img_s:", img_s.size(), "img_t:", img_t.size())
+                print("MPSCL debug - labels_s:", labels_s.size())
+                print("MPSCL debug - dcdr_ft_s:", dcdr_ft_s.size(), "dcdr_ft_t:", dcdr_ft_t.size())
                 self._log_images(img_s, labels_s, pred_s_main, img_t, pred_t_main, epoch)
             loss_seg = loss_calc(pred_s_main, labels_s, self.device, False) + dice_loss(pred_s_main, labels_s)
             """save the main segmentation loss"""
@@ -160,8 +166,11 @@ class Trainer_MPSCL(Trainer_Advent):
                 loss_seg_aux_list.append(loss_seg_aux.item())
 
             self.centroid_s = update_class_center_iter(dcdr_ft_s, labels_s, self.centroid_s,
-                                                       m=self.args.class_center_m)
-            hard_pixel_label, pixel_mask = generate_pseudo_label(dcdr_ft_s, self.centroid_s, self.args.pixel_sel_th)
+                                                       m=self.args.class_center_m,
+                                                       num_class=self.args.num_classes)
+            hard_pixel_label, pixel_mask = generate_pseudo_label(dcdr_ft_t, self.centroid_s, self.args.pixel_sel_th)
+            if len(loss_mpcl_tr_list) == 0:
+                print("MPSCL debug - hard_pixel_label shape:", hard_pixel_label.shape, "pixel_mask shape:", pixel_mask.shape)
 
             mpcl_loss_tr = mpcl_loss_calc(feas=dcdr_ft_s, labels=labels_s,
                                           class_center_feas=self.centroid_s,
@@ -289,6 +298,15 @@ class Trainer_MPSCL(Trainer_Advent):
 
         self.args.class_center_init = f'class_center_{"bssfp" if "mscmrseg" in self.args.data_dir else "ct"}_f{self.args.fold}.npy'
         self.centroid_s = np.load(self.args.class_center_init)
+        if self.centroid_s.shape[0] != self.args.num_classes:
+            if self.centroid_s.shape[0] > self.args.num_classes:
+                self.centroid_s = self.centroid_s[:self.args.num_classes]
+            else:
+                repeat_num = self.args.num_classes - self.centroid_s.shape[0]
+                self.centroid_s = np.concatenate(
+                    [self.centroid_s, np.repeat(self.centroid_s[-1][None, :], repeat_num, axis=0)],
+                    axis=0,
+                )
         self.centroid_s = torch.from_numpy(self.centroid_s).float().to(self.device)
         for epoch in tqdm(range(self.start_epoch, self.args.epochs)):
             epoch_start = datetime.now()

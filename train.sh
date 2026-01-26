@@ -56,7 +56,9 @@ python train_AdaptEvery.py \
 tensorboard  --port 6006 --logdir logs/model_unet
 python train.py --model BayeSeg --output_dir logs/model_unet --backbone unet
 python trainer/Trainer_udaBayeSeg.py --model udaBayeSeg --output_dir logs/udaBayeSeg --uda
-python test.py --model BayeSeg --checkpoint_dir logs/model_unet/best_checkpoint.pth
+python test.py --model BayeSeg --checkpoint_dir logs/model_unet/best_checkpoint.pth --backbone unet
 
 python train_MPSCL.py -data_dir /root/SLCL/Processed_data_nii_uda\
-  -uda -backbone drunet -epochs 400  -normalization zscore
+  -uda -backbone drunet -epochs 4000  -normalization zscore \
+  -lr 2e-3 -lr_decay_method linear -lr_decay 1e-3 \
+  -adjust_lr_dis -lr_dis 1e-4

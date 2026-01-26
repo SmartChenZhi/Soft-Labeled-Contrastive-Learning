@@ -1,7 +1,7 @@
 import os
 import random
 from glob import glob
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, IterableDataset
 from monai.data import CacheDataset, PatchDataset
 from data.transform import (
     volume_transform,
@@ -10,18 +10,18 @@ from data.transform import (
     FilterSliced,
 )
 
-class DictToTupleWrapper(Dataset):
+class DictToTupleWrapper(IterableDataset):
     def __init__(self, dataset):
         self.dataset = dataset
         
+    def __iter__(self):
+        for d in self.dataset:
+            # Trainer expects: img, label, name
+            # Return a dummy name as it is not strictly used in training loop logic of MPSCL
+            yield d["image"], d["label"], "unknown"
+            
     def __len__(self):
         return len(self.dataset)
-        
-    def __getitem__(self, index):
-        d = self.dataset[index]
-        # Trainer expects: img, label, name
-        # Return a dummy name as it is not strictly used in training loop logic of MPSCL
-        return d["image"], d["label"], "unknown"
 
 def build_dataset_internal(image_set, args):
     assert os.path.exists(
@@ -121,7 +121,7 @@ def prepare_dataset(args):
     content_loader = DataLoader(
         source_wrapper, 
         batch_size=args.bs, 
-        shuffle=True, 
+        shuffle=False, 
         num_workers=args.num_workers,
         pin_memory=args.pin_memory
     )
@@ -129,7 +129,7 @@ def prepare_dataset(args):
     style_loader = DataLoader(
         target_wrapper, 
         batch_size=args.bs, 
-        shuffle=True, 
+        shuffle=False, 
         num_workers=args.num_workers,
         pin_memory=args.pin_memory
     )

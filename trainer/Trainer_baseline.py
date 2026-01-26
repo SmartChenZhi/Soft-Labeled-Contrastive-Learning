@@ -87,7 +87,7 @@ class Trainer_baseline(Trainer):
             self.segmentor = UNet(n_channels=3, n_classes=self.args.num_classes)
         elif self.args.backbone == 'drunet':
             from model.DRUNet import Segmentation_model as DR_UNet
-            self.segmentor = DR_UNet(filters=self.args.filters, n_block=self.args.nb, bottleneck_depth=self.args.bd,
+            self.segmentor = DR_UNet(filters=self.args.filters, in_channels=1, n_block=self.args.nb, bottleneck_depth=self.args.bd,
                                      n_class=self.args.num_classes, multilvl=self.args.multilvl, args=self.args)
             if self.args.restore_from:
                 checkpoint = torch.load(self.args.restore_from)
