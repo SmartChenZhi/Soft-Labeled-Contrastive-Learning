@@ -5,7 +5,7 @@ def add_experiment_args(parser: ArgumentParser) -> None:
     # Experiment
     parser.add_argument("--lr", default=3e-4, type=float)
     parser.add_argument("--weight_decay", default=1e-4, type=float)
-    parser.add_argument("--batch_size", default=16, type=int)
+    parser.add_argument("--batch_size", default=12, type=int)
     parser.add_argument("--epochs", default=1200, type=int)
     parser.add_argument("--lr_drop", default=1000, type=int)
     parser.add_argument("--num_classes", default=2, type=int)

@@ -280,7 +280,7 @@ class udaBayeSeg_Criterion(Criterion):
             "loss_Bayes_t": self.loss_Bayes(pred_t),
         }
         losses = (
-            loss_dict["loss_Dice_CE"] + 0.1 * loss_dict["loss_Dice_CE_t"] + self.bayes_loss_coef * (loss_dict["loss_Bayes"] + loss_dict["loss_Bayes_t"])
+            loss_dict["loss_Dice_CE"] + loss_dict["loss_Dice_CE_t"] + self.bayes_loss_coef * (loss_dict["loss_Bayes"] + loss_dict["loss_Bayes_t"])
         )
         return losses, loss_dict
 
