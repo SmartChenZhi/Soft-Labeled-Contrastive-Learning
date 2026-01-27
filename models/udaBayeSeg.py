@@ -264,6 +264,11 @@ class udaBayeSeg_Criterion(Criterion):
     def forward(self, out, grnd):
         pred = out[0]
         pred_t = out[1]
+        
+        # Calculate loss_Dice_CE_t normalized by H*W
+        _, _, H, W = pred_t["pred_logits"].shape
+        loss_Dice_CE_t = self.kl_loss(F.log_softmax(pred_t["pred_logits"], dim=1), pred_t["dummy_label"].detach()) / (H * W)
+        
         loss_dict = {
             "loss_Dice_CE": self.compute_dice_ce_loss(pred["pred_masks"], grnd),
             "Dice": self.compute_dice(pred["pred_masks"], grnd),
@@ -271,7 +276,7 @@ class udaBayeSeg_Criterion(Criterion):
             "rho": torch.mean(pred["rho"]),
             "omega": torch.mean(pred["omega"]),
             "upsilon": torch.mean(pred["upsilon"]),
-            "loss_Dice_CE_t": self.kl_loss(F.log_softmax(pred_t["pred_logits"], dim=1), pred_t["dummy_label"].detach()),
+            "loss_Dice_CE_t": loss_Dice_CE_t,
             "loss_Bayes_t": self.loss_Bayes(pred_t),
         }
         losses = (
