@@ -89,6 +89,16 @@ class Trainer_udaBayeSeg:
                 pin_memory=True,
             )
 
+            self.logger.info("Building source validation dataset for visualization...")
+            dataset_source_val = build_dataset(image_set="source_val", args=args)
+            self.source_val_loader = DataLoader(
+                dataset_source_val,
+                args.batch_size,
+                False,
+                num_workers=args.num_workers,
+                pin_memory=True,
+            )
+
         if args.resume:
             checkpoint = torch.load(args.resume, map_location="cpu")
             self.model.load_state_dict(checkpoint["model"])
@@ -220,10 +230,14 @@ class Trainer_udaBayeSeg:
         valid_iterator = iter(self.valid_loader)
         if self.args.uda:
             target_iterator = iter(self.target_loader)
+            source_val_iterator = iter(self.source_val_loader)
+
         sample_list, output_list, target_list = [], [], []
         sample_list_t = []
         output_list_t = []
         start_time = time.time()
+        
+        outputs_vis = None
 
         for step in range(total_step):
             start = time.time()
@@ -258,16 +272,27 @@ class Trainer_udaBayeSeg:
             )
 
             if step % (max(round(total_step / 16.0), 1)) == 0:
-                sample_list.append(samples[0])
-                target_list.append(targets[0])
                 if self.args.uda:
+                    try:
+                        source_data_dict = next(source_val_iterator)
+                    except StopIteration:
+                        source_val_iterator = iter(self.source_val_loader)
+                        source_data_dict = next(source_val_iterator)
+                    samples_source = source_data_dict["image"].to(self.device)
+                    targets_source = source_data_dict["label"].to(self.device)
+                    
+                    with torch.no_grad():
+                        outputs_vis = self.model(samples_source, samples_t)
+
+                    sample_list.append(samples_source[0])
+                    target_list.append(targets_source[0])
                     sample_list_t.append(samples_t[0])
                     # outputs is [out_s, out_t]
                     output_list.append(
-                        torch.argmax(outputs[0]["pred_masks"][0], dim=0, keepdim=True)
+                        torch.argmax(outputs_vis[0]["pred_masks"][0], dim=0, keepdim=True)
                     )
                     output_list_t.append(
-                        torch.argmax(outputs[1]["pred_masks"][0], dim=0, keepdim=True)
+                        torch.argmax(outputs_vis[1]["pred_masks"][0], dim=0, keepdim=True)
                     )
 
         total_time = time.time() - start_time
@@ -285,15 +310,15 @@ class Trainer_udaBayeSeg:
         self.writer.add_scalar("Dice", stats["Dice"], self.epoch)
         self.writer.add_scalar("loss_Dice_CE", stats["loss_Dice_CE"], self.epoch)
         
-        if self.args.uda:
+        if self.args.uda and outputs_vis is not None:
             self.visualizer(
                 torch.stack(sample_list),
                 torch.stack(sample_list_t),
                 torch.stack(output_list),
                 torch.stack(output_list_t),
                 torch.stack(target_list),
-                outputs[0]["visualize"],
-                outputs[1]["visualize"],
+                outputs_vis[0]["visualize"],
+                outputs_vis[1]["visualize"],
                 self.epoch,
                 self.writer,
             )

@@ -23,6 +23,8 @@ def build_Prostate(image_set, args):
         file_paths = glob(os.path.join(args.dataset_dir, "BIDMC", "val", "*.nii.gz"))
     elif is_uda and image_set == "test":
         file_paths = glob(os.path.join(args.dataset_dir, "BIDMC", "test", "*.nii.gz"))
+    elif image_set == "source_val":
+        file_paths = glob(os.path.join(args.dataset_dir, "RUNMC", "val", "*.nii.gz"))
     else:
         file_paths = glob(os.path.join(args.dataset_dir, "RUNMC", image_set, "*.nii.gz"))
 
@@ -44,6 +46,8 @@ def build_Prostate(image_set, args):
         random.shuffle(path_dicts)
         slice_transform = slice_transform_train
     elif image_set == "val":
+        slice_transform = slice_transform_valid
+    elif image_set == "source_val":
         slice_transform = slice_transform_valid
     elif image_set == "test":
         slice_transform = slice_transform_valid    
