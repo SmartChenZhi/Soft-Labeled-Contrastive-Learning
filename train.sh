@@ -62,3 +62,10 @@ python train_MPSCL.py -data_dir /root/SLCL/Processed_data_nii_uda\
   -uda -backbone drunet -epochs 2000  -normalization zscore \
   -lr 3e-4 -lr_decay_method linear -lr_decay 1e-3 \
   -adjust_lr_dis -lr_dis 1e-4
+
+python train_Causal.py \
+  -raw \
+  -backbone drunet \
+  -data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA-master \
+  -epochs 400 \
+  -bs 16
