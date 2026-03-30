@@ -1,10 +1,10 @@
-tensorboard  --port 6006 --logdir 
+tensorboard  --port 6007 --logdir 
 # baseline
 python train_baseline.py \
-  -raw -rev\
+  -raw\
   -backbone resnet50 \
   -data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA-master \
-  -train_with_s -train_with_t -epochs 300
+  -train_with_s -epochs 300 -num_classes 4
 
 python evaluator.py \
   --backbone drunet \
@@ -64,8 +64,14 @@ python train_MPSCL.py -data_dir /root/SLCL/Processed_data_nii_uda\
   -adjust_lr_dis -lr_dis 1e-4
 
 python train_Causal.py \
-  -raw \
+  -raw  -rev\
   -backbone drunet \
   -data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA-master \
-  -epochs 400 \
-  -bs 16
+  -epochs 200 -include_target_gt_in_source\
+  -bs 16 -num_classes 4
+
+  python test_Causal.py \
+  -raw  -num_classes 4\
+  -backbone drunet \
+  -data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA-master \
+  -restore_from weights/best_CausalTDE.mmwhs.s0.f0.v0.drunet.32.nb4.bd4.lr0.00025.mmt0.9.raw.bs16.wtdesup1.0.went0.001.wcons0.1.wdom0.1.cth0.7.xbm0.2.z32.demb16.grl1.0.e109.Scr0.515.pt

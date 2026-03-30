@@ -29,6 +29,11 @@ class Trainer_baseline(Trainer):
         """dataset configuration"""
         self.parser.add_argument("-train_with_t", action='store_true')
         self.parser.add_argument("-train_with_s", action='store_true')
+        self.parser.add_argument(
+            "-include_target_gt_in_source",
+            action='store_true',
+            help="Also add the target-domain withGT training fold into the source supervised loader.",
+        )
         """evaluation configuration"""
         self.parser.add_argument("-eval_bs", type=int, default=config.EVAL_BS,
                                  help="Number of images sent to the network in a batch during evaluation.")
@@ -270,6 +275,25 @@ class Trainer_baseline(Trainer):
     @timer.timeit
     def train(self):
         # results = self.eval(modality='target', phase='test')
+        fixed_batch_img, fixed_batch_label = None, None
+        if self.args.train_with_t and hasattr(self, 'style_loader') and self.style_loader is not None:
+            batch = next(iter(self.style_loader))
+            fixed_batch_img, fixed_batch_label = batch[0][:4].to(self.device), batch[1][:4].to(self.device)
+        elif self.args.train_with_s and hasattr(self, 'content_loader') and self.content_loader is not None:
+            batch = next(iter(self.content_loader))
+            fixed_batch_img, fixed_batch_label = batch[0][:4].to(self.device), batch[1][:4].to(self.device)
+
+        colors = np.array([
+            [0, 0, 0],
+            [255, 51, 51],
+            [51, 255, 51],
+            [51, 153, 255],
+            [255, 255, 51],
+            [255, 51, 255],
+            [51, 255, 255],
+            [255, 153, 51],
+        ]) / 255.0
+
         for epoch in tqdm(range(self.start_epoch, self.args.epochs)):
             """adjust learning rate and save the value for tensorboard"""
             self.adjust_lr(epoch=epoch)
@@ -308,6 +332,54 @@ class Trainer_baseline(Trainer):
             else:
                 self.writer.add_scalar('Loss Seg/Target', train_results['seg_t'], epoch + 1)
             self.writer.add_scalar('LR/Seg_LR', self.opt.param_groups[0]['lr'], epoch + 1)
+
+            if fixed_batch_img is not None:
+                self.segmentor.eval()
+                with torch.no_grad():
+                    out = self.segmentor(fixed_batch_img)
+                    pred = out[0] if type(out) == tuple else out
+                    pred = torch.argmax(pred, dim=1)
+
+                    pred_np = pred.cpu().numpy()
+                    label_np = fixed_batch_label.cpu().numpy()
+                    img_np = fixed_batch_img.cpu().numpy()
+
+                    alpha = 0.5
+                    blended_preds, blended_labels, imgs_to_show = [], [], []
+
+                    for i in range(pred_np.shape[0]):
+                        p, l, im = pred_np[i], label_np[i], img_np[i]
+
+                        if im.shape[0] == 1:
+                            im = np.repeat(im, 3, axis=0)
+                        elif im.shape[0] > 3:
+                            im = im[:3]
+
+                        im_min, im_max = im.min(), im.max()
+                        if im_max > im_min:
+                            im = (im - im_min) / (im_max - im_min)
+
+                        im_hwc = im.transpose(1, 2, 0)
+                        p_color, l_color = np.zeros_like(im_hwc), np.zeros_like(im_hwc)
+
+                        for c in range(1, self.args.num_classes):
+                            if c < len(colors):
+                                p_color[p == c] = colors[c]
+                                l_color[l == c] = colors[c]
+
+                        p_blend, l_blend = im_hwc.copy(), im_hwc.copy()
+                        p_fg, l_fg = p > 0, l > 0
+
+                        p_blend[p_fg] = alpha * im_hwc[p_fg] + (1 - alpha) * p_color[p_fg]
+                        l_blend[l_fg] = alpha * im_hwc[l_fg] + (1 - alpha) * l_color[l_fg]
+
+                        imgs_to_show.append(im)
+                        blended_preds.append(p_blend.transpose(2, 0, 1))
+                        blended_labels.append(l_blend.transpose(2, 0, 1))
+
+                    self.writer.add_images('Vis/1_Image', torch.tensor(np.array(imgs_to_show)), epoch + 1)
+                    self.writer.add_images('Vis/2_GT', torch.tensor(np.array(blended_labels)), epoch + 1)
+                    self.writer.add_images('Vis/3_Pred', torch.tensor(np.array(blended_preds)), epoch + 1)
 
             if tobreak:
                 break

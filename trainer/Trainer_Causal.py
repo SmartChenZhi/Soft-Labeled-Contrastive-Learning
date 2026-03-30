@@ -200,6 +200,15 @@ class Trainer_Causal(Trainer_baseline):
                 f'loss_total = {train_results["loss_total"]:.4f}, dc_valid = {lge_dice:.4f}'
             )
 
+            if epoch + 1 >= 0 and (epoch + 1) % 5 == 0:
+                save_path = os.path.join("results", f"checkpoint_epoch{epoch + 1}.pth")
+                torch.save({
+                    "epoch": epoch + 1,
+                    "model_state_dict": self.segmentor.state_dict(),
+                    "optimizer_state_dict": self.opt.state_dict(),
+                }, save_path)
+                print(f"Checkpoint saved: {save_path}")
+
             tobreak = self.stop_training(epoch, epoch_start, lge_dice)
             self.mcp_segmentor.step(
                 monitor=lge_dice,

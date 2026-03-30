@@ -18,7 +18,7 @@ class DataGenerator(data.Dataset):
     def __init__(self, phase="train", modality="ct", crop_size=224, n_samples=-1, augmentation=False,
                  data_dir='../data/mscmrseg/mmwhs/CT_MR_2D_Dataset_DA-master', bs=16, domain='s',
                  aug_mode='simple', aug_counter=False, normalization='minmax', fold=0, vert=False, split=0,
-                 val_num=0, M3ASdata=True, zoom=1, percent=100):
+                 val_num=0, M3ASdata=True, zoom=1, percent=100, include_target_gt_in_source=False):
         assert modality == "ct" or modality == "mr"
         self._modality = modality
         self._crop_size = crop_size
@@ -47,9 +47,9 @@ class DataGenerator(data.Dataset):
                 if vert:
                     self._vert_files += [os.path.join(data_dir, f'vert{modality.upper()}/lab{num}_slice{slc_num}.npy') for slc_num in range(1, 17)]
         if domain == 't':
-             train_extra = config.train_extra_list[split][fold]
+             train_extra = list(config.train_extra_list[split][fold])
         elif domain == 's':
-            train_extra = config.train_extra_list[split][0] + config.train_extra_list[split][1]
+            train_extra = list(config.train_extra_list[split][0] + config.train_extra_list[split][1])
         else:
             raise NotImplementedError
         print(f'domain {domain}, extra training samples: {np.sort(train_extra)}')
@@ -62,6 +62,29 @@ class DataGenerator(data.Dataset):
             self._mask_files += [os.path.join(parent_fold, f'lab{num}_slice{slc_num}.nii.gz') for slc_num in range(1, 17)]
             if vert:
                 self._vert_files += [os.path.join(data_dir, f'vert{modality.upper()}/lab{num}_slice{slc_num}.npy') for slc_num in range(1, 17)]
+
+        if domain == 's' and include_target_gt_in_source:
+            target_modality = 'mr' if modality == 'ct' else 'ct'
+            target_extra = np.array(config.train_extra_list[split][fold], dtype=int)
+            if target_modality == 'ct':
+                target_extra += 32
+            target_parent = os.path.join(data_dir, f'{target_modality.upper()}_withGT')
+            print(
+                f'include target withGT in source: modality={target_modality}, '
+                f'samples={np.sort(target_extra)}'
+            )
+            for num in target_extra:
+                self._image_files += [
+                    os.path.join(target_parent, f'img{num}_slice{slc_num}.nii.gz') for slc_num in range(1, 17)
+                ]
+                self._mask_files += [
+                    os.path.join(target_parent, f'lab{num}_slice{slc_num}.nii.gz') for slc_num in range(1, 17)
+                ]
+                if vert:
+                    self._vert_files += [
+                        os.path.join(data_dir, f'vert{target_modality.upper()}/lab{num}_slice{slc_num}.npy')
+                        for slc_num in range(1, 17)
+                    ]
         assert len(self._image_files) == len(self._mask_files) and \
                len(self._image_files) > 0, f'data dir: {data_dir}, img file len: {len(self._image_files)}, ' \
                                            f'mask file len: {len(self._mask_files)}'
@@ -144,7 +167,8 @@ def prepare_dataset(args, aug_counter=False, vert=False):
                                     augmentation=args.aug_s, data_dir=scratch, bs=args.bs,
                                     aug_mode=args.aug_mode, normalization=args.normalization,
                                     aug_counter=False if args.rev else aug_counter, fold=args.fold, domain='s',
-                                    vert=vert, split=args.split, val_num=args.val_num, percent=args.percent)
+                                    vert=vert, split=args.split, val_num=args.val_num, percent=args.percent,
+                                    include_target_gt_in_source=args.include_target_gt_in_source)
     style_dataset = DataGenerator(modality='ct' if args.rev else 'mr', crop_size=args.crop,
                                   augmentation=args.aug_t, data_dir=scratch, bs=args.bs,
                                   aug_mode=args.aug_mode, normalization=args.normalization,

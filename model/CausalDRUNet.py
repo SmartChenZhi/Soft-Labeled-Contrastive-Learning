@@ -120,7 +120,7 @@ class CausalSegmentationModel(nn.Module):
         raise ValueError(f"Unsupported x_bar shape: {tuple(x_bar_vec.shape)}")
 
     @torch.no_grad()
-    def update_x_bar(self, batch_mean, momentum=0.2):
+    def update_x_bar(self, batch_mean, momentum=0.9):
         if batch_mean.dim() != 1:
             raise ValueError(f"batch_mean must be 1D, got {tuple(batch_mean.shape)}")
         if self.x_bar_initialized.item() == 0:
