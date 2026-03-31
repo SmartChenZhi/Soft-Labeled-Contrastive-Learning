@@ -73,3 +73,5 @@ def add_bayes_args(parser: ArgumentParser) -> None:
     parser.add_argument("--gs_loss_coef", default=1.0, type=float)
     parser.add_argument("--fdi_base_channels", default=32, type=int)
     parser.add_argument("--fdi_attn_heads", default=4, type=int)
+    parser.add_argument("--gs_num_embeddings", default=256, type=int)
+    parser.add_argument("--gs_commitment_cost", default=0.25, type=float)

@@ -123,15 +123,20 @@ class Trainer:
             for step in range(total_step):
                 batch = next(train_iterator)
                 labels = batch["label"].to(self.device)
-                _, recon = self.model.gs_forward(labels)
+                _, recon, vq_loss, _ = self.model.gs_forward(labels)
                 targets = self.model.one_hot_labels(labels)
-                loss = self.args.gs_loss_coef * F.mse_loss(recon, targets)
+                loss_recon = F.mse_loss(recon, targets)
+                loss = self.args.gs_loss_coef * (loss_recon + vq_loss)
 
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
 
-                metric_logger.update(loss_gs=loss.item())
+                metric_logger.update(
+                    loss_gs=loss.item(),
+                    loss_gs_recon=loss_recon.item(),
+                    loss_gs_vq=vq_loss.item(),
+                )
                 metric_logger.log_every(
                     step,
                     total_step,

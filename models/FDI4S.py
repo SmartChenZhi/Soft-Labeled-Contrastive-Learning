@@ -92,6 +92,40 @@ class Decoder(nn.Module):
 
 
 class GlobalSamplingModule(nn.Module):
+    class VectorQuantizer(nn.Module):
+        def __init__(self, num_embeddings, embedding_dim, commitment_cost):
+            super().__init__()
+            self.num_embeddings = num_embeddings
+            self.embedding_dim = embedding_dim
+            self.commitment_cost = commitment_cost
+
+            self.embedding = nn.Embedding(num_embeddings, embedding_dim)
+            self.embedding.weight.data.uniform_(
+                -1.0 / num_embeddings, 1.0 / num_embeddings
+            )
+
+        def forward(self, x):
+            # x: [N, C, H, W]
+            x_perm = x.permute(0, 2, 3, 1).contiguous()
+            flat_x = x_perm.view(-1, self.embedding_dim)
+
+            distances = (
+                flat_x.pow(2).sum(dim=1, keepdim=True)
+                - 2 * flat_x @ self.embedding.weight.t()
+                + self.embedding.weight.pow(2).sum(dim=1)
+            )
+            encoding_indices = torch.argmin(distances, dim=1)
+            quantized = self.embedding(encoding_indices).view_as(x_perm)
+
+            e_latent_loss = F.mse_loss(quantized.detach(), x_perm)
+            q_latent_loss = F.mse_loss(quantized, x_perm.detach())
+            vq_loss = q_latent_loss + self.commitment_cost * e_latent_loss
+
+            quantized = x_perm + (quantized - x_perm).detach()
+            quantized = quantized.permute(0, 3, 1, 2).contiguous()
+            encoding_indices = encoding_indices.view(x.shape[0], x.shape[2], x.shape[3])
+            return quantized, vq_loss, encoding_indices
+
     def __init__(self, num_classes, feature_channels, base_channels):
         super().__init__()
         self.num_classes = num_classes
@@ -115,12 +149,27 @@ class GlobalSamplingModule(nn.Module):
             ConvBlock(hidden, hidden),
             nn.ConvTranspose2d(hidden, 1, kernel_size=2, stride=2),
         )
+        self.quantizer = self.VectorQuantizer(
+            num_embeddings=256,
+            embedding_dim=feature_channels,
+            commitment_cost=0.25,
+        )
+
+    def set_vq_config(self, num_embeddings, commitment_cost):
+        self.quantizer = self.VectorQuantizer(
+            num_embeddings=num_embeddings,
+            embedding_dim=self.quantizer.embedding_dim,
+            commitment_cost=commitment_cost,
+        )
 
     def encode(self, masks):
         batch_size, num_classes, height, width = masks.shape
         encoded = self.encoder(masks.reshape(batch_size * num_classes, 1, height, width))
         _, channels, h_small, w_small = encoded.shape
-        return encoded.reshape(batch_size, num_classes, channels, h_small, w_small)
+        quantized, vq_loss, encoding_indices = self.quantizer(encoded)
+        quantized = quantized.reshape(batch_size, num_classes, channels, h_small, w_small)
+        encoding_indices = encoding_indices.reshape(batch_size, num_classes, h_small, w_small)
+        return quantized, vq_loss, encoding_indices
 
     def reconstruct(self, class_features):
         batch_size, num_classes, channels, h_small, w_small = class_features.shape
@@ -128,9 +177,9 @@ class GlobalSamplingModule(nn.Module):
         return decoded.reshape(batch_size, num_classes, decoded.shape[-2], decoded.shape[-1])
 
     def forward(self, masks):
-        class_features = self.encode(masks)
+        class_features, vq_loss, encoding_indices = self.encode(masks)
         recon = self.reconstruct(class_features)
-        return class_features, recon
+        return class_features, recon, vq_loss, encoding_indices
 
 
 class CausalIntervention(nn.Module):
@@ -165,6 +214,10 @@ class FDI4S(nn.Module):
             feature_channels=bottleneck_channels,
             base_channels=args.fdi_base_channels,
         )
+        self.gs_module.set_vq_config(
+            num_embeddings=args.gs_num_embeddings,
+            commitment_cost=args.gs_commitment_cost,
+        )
         self.causal_intervention = CausalIntervention(
             channels=bottleneck_channels,
             num_heads=args.fdi_attn_heads,
@@ -195,7 +248,7 @@ class FDI4S(nn.Module):
         count = 0
         for batch in loader:
             labels = batch["label"].to(device)
-            class_features, _ = self.gs_forward(labels)
+            class_features, _, _, _ = self.gs_forward(labels)
             batch_mean = class_features.mean(dim=0)
             total = batch_mean if total is None else total + batch_mean
             count += 1
