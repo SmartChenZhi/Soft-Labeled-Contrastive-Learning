@@ -107,6 +107,8 @@ class Trainer:
         start_time = time.time()
         for epoch in range(self.start_epoch, self.epochs):
             self.epoch = epoch
+            if hasattr(self.model, "set_epoch"):
+                self.model.set_epoch(epoch)
 
             train_stats = self.train_one_epoch()
             test_stats = self.evaluate()
@@ -161,6 +163,8 @@ class Trainer:
                     target_data_dict = next(target_iterator)
                 samples_t = target_data_dict["image"].to(self.device)
                 outputs = self.model(samples,samples_t)
+            elif self.args.model == "BayeSeg" and self.args.use_lrfs:
+                outputs = self.model(samples, reg_samples=ori_samples)
             else:
                 outputs = self.model(samples)
             if self.args.model == "vqUNet" or self.args.model == "vqBayeSeg":
@@ -247,6 +251,8 @@ class Trainer:
                     target_data_dict = next(target_iterator)
                 samples_t = target_data_dict["image"].to(self.device)
                 outputs = self.model(samples,samples_t)
+            elif self.args.model == "BayeSeg" and self.args.use_lrfs:
+                outputs = self.model(samples, reg_samples=ori_samples)
             else:
                 outputs = self.model(samples)
             if self.args.model == "vqUNet" or self.args.model == "vqBayeSeg":
@@ -301,6 +307,10 @@ class Trainer:
             self.writer.add_scalar("loss_total", stats["loss"], self.epoch)
             self.writer.add_scalar("Dice", stats["Dice"], self.epoch)
             self.writer.add_scalar("loss_Dice_CE", stats["loss_Dice_CE"], self.epoch)
+            if self.args.use_lrfs and "loss_lrfs" in stats:
+                self.writer.add_scalar("loss_lrfs", stats["loss_lrfs"], self.epoch)
+                self.writer.add_scalar("loss_lrfs_hf", stats["loss_lrfs_hf"], self.epoch)
+                self.writer.add_scalar("loss_lrfs_mf", stats["loss_lrfs_mf"], self.epoch)
         if self.args.model in ("vqUNet","vqBayeSeg","vqvae"):
             self.writer.add_scalar("loss_recon", stats["loss_recon"], self.epoch)
             self.writer.add_scalar("loss_vq", stats["loss_vq"], self.epoch)

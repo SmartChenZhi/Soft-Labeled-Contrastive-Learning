@@ -58,3 +58,12 @@ def add_bayes_args(parser: ArgumentParser) -> None:
     # Seg category probability pi
     parser.add_argument("--alpha_pi", default=2, type=float)
     parser.add_argument("--beta_pi", default=2, type=float)
+
+    # LRFS: Lipschitz regularization via frequency spectrum
+    parser.add_argument("--use_lrfs", action="store_true", help="Enable LRFS regularization from 3740_paper.pdf")
+    parser.add_argument("--lrfs_loss_coef", default=1e-2, type=float)
+    parser.add_argument("--lrfs_warmup_epochs", default=100, type=int)
+    parser.add_argument("--lrfs_nu_mf", default=0.3, type=float)
+    parser.add_argument("--lrfs_nu_hf", default=0.7, type=float)
+    parser.add_argument("--lrfs_kappa_mf", default=1.0, type=float)
+    parser.add_argument("--lrfs_kappa_hf", default=1.0, type=float)

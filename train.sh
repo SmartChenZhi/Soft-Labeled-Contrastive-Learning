@@ -54,6 +54,7 @@ python train_AdaptEvery.py \
 
 
 tensorboard  --port 6006 --logdir logs/model_unet
+python train.py --model BayeSeg --use_lrfs --output_dir logs/lrfs
 python train.py --model BayeSeg --output_dir logs/model_unet --backbone unet
 python Trainer_udaBayeSeg.py --model udaBayeSeg --output_dir logs/udaBayeSeg --uda --dataset_dir /root/SLCL/Processed_data_nii_uda
 python test.py --model BayeSeg --checkpoint_dir logs/model_unet/best_checkpoint.pth --backbone unet
@@ -74,4 +75,4 @@ python train_Causal.py \
   -raw  -num_classes 4\
   -backbone drunet \
   -data_dir ../data/mmwhs/CT_MR_2D_Dataset_DA-master \
-  -restore_from weights/best_CausalTDE.mmwhs.s0.f0.v0.drunet.32.nb4.bd4.lr0.00025.mmt0.9.raw.bs16.wtdesup1.0.went0.001.wcons0.1.wdom0.1.cth0.7.xbm0.2.z32.demb16.grl1.0.e109.Scr0.515.pt
+  -restore_from weights/best_CausalTDE.mmwhs.s0.f0.v0.drunet.32.nb4.bd4.lr0.00025.mmt0.9.raw.bs16.wtdesup1.0.went0.001.wcons0.1.wdom0.1.cth0.7.xbm0.2.z32.demb16.grl1.0.e153.Scr0.862.pt

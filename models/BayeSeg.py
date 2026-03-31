@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from efficientunet import get_efficientunet_b2
 
 from .Basic_module import Criterion, Visualization
+from .lrfs import lrfs_loss
 from .ResNet import ResNet_appearance, ResNet_shape
 from .Unet import UNet
 
@@ -26,6 +27,7 @@ class BayeSeg(nn.Module):
             )
 
         self.softmax = nn.Softmax(dim=1)
+        self.current_epoch = 0
 
         Dx = torch.zeros([1, 1, 3, 3], dtype=torch.float)
         Dx[:, :, 1, 1] = 1
@@ -38,6 +40,9 @@ class BayeSeg(nn.Module):
         eps = mu.mul(0).normal_()
         z = eps.mul_(sigma).add_(mu)
         return z, eps
+
+    def set_epoch(self, epoch):
+        self.current_epoch = epoch
 
     def generate_m(self, samples):
         feature = self.res_appear(samples)
@@ -53,6 +58,11 @@ class BayeSeg(nn.Module):
         x, _ = self.sample_normal_jit(mu_x, log_var_x)
         return x, mu_x, log_var_x
 
+    def encode_shape_mean(self, samples):
+        feature = self.res_shape(samples)
+        mu_x, _ = torch.chunk(feature, 2, dim=1)
+        return mu_x
+
     def generate_z(self, x):
         if self.args.backbone == "unet":
             feature = self.unet(x.repeat(1, 3, 1, 1))["pred_masks"]
@@ -66,7 +76,7 @@ class BayeSeg(nn.Module):
         else:
             return self.softmax(z), self.softmax(mu_z), log_var_z
 
-    def forward(self, samples: torch.Tensor):
+    def forward(self, samples: torch.Tensor, reg_samples: torch.Tensor = None):
         x, mu_x, log_var_x = self.generate_x(samples)
         m, mu_m, log_var_m = self.generate_m(samples)
         z, mu_z, log_var_z = self.generate_z(x)
@@ -183,6 +193,24 @@ class BayeSeg(nn.Module):
             "upsilon": mu_upsilon_hat * mu_z,
             "visualize": visualize,
         }
+        if (
+            self.args.use_lrfs
+            and self.training
+            and self.current_epoch >= self.args.lrfs_warmup_epochs
+        ):
+            reg_inputs = reg_samples if reg_samples is not None else samples
+            feature_anchor = self.encode_shape_mean(reg_inputs) if reg_samples is not None else mu_x
+            loss_hf, loss_mf = lrfs_loss(
+                feature_anchor=feature_anchor,
+                image_anchor=reg_inputs,
+                encoder_fn=self.encode_shape_mean,
+                nu_mf=self.args.lrfs_nu_mf,
+                nu_hf=self.args.lrfs_nu_hf,
+                kappa_mf=self.args.lrfs_kappa_mf,
+                kappa_hf=self.args.lrfs_kappa_hf,
+            )
+            out["loss_lrfs_hf"] = loss_hf
+            out["loss_lrfs_mf"] = loss_mf
         return out
 
 
@@ -190,6 +218,8 @@ class BayeSeg_Criterion(Criterion):
     def __init__(self, args):
         super(BayeSeg_Criterion, self).__init__(args)
         self.bayes_loss_coef = args.bayes_loss_coef
+        self.use_lrfs = args.use_lrfs
+        self.lrfs_loss_coef = args.lrfs_loss_coef
 
     def loss_Bayes(self, outputs):
         N = outputs["normalization"]
@@ -221,9 +251,18 @@ class BayeSeg_Criterion(Criterion):
             "omega": torch.mean(pred["omega"]),
             "upsilon": torch.mean(pred["upsilon"]),
         }
+        if self.use_lrfs:
+            zero = pred["pred_masks"].new_zeros(())
+            loss_dict["loss_lrfs_hf"] = pred.get("loss_lrfs_hf", zero)
+            loss_dict["loss_lrfs_mf"] = pred.get("loss_lrfs_mf", zero)
+            loss_dict["loss_lrfs"] = (
+                loss_dict["loss_lrfs_hf"] + loss_dict["loss_lrfs_mf"]
+            )
         losses = (
             loss_dict["loss_Dice_CE"] + self.bayes_loss_coef * loss_dict["loss_Bayes"]
         )
+        if self.use_lrfs:
+            losses = losses + self.lrfs_loss_coef * loss_dict["loss_lrfs"]
         return losses, loss_dict
 
 
