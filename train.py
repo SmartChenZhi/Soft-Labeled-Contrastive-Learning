@@ -7,6 +7,7 @@ import random
 import datetime
 import argparse
 import numpy as np
+import torch.nn.functional as F
 from pathlib import Path
 import torch.backends.cudnn as cudnn
 from tensorboardX import SummaryWriter
@@ -102,8 +103,55 @@ class Trainer:
         self.epochs = args.epochs
         self.best_dice = None
 
+    def pretrain_gs(self):
+        if self.args.model != "FDI4S":
+            return
+        if getattr(self.model, "global_context_ready", None) is not None and self.model.global_context_ready.item() == 1:
+            self.logger.info("FDI4S global context already initialized, skipping GS pretraining.")
+            return
+
+        self.logger.info("Start FDI4S GS pretraining")
+        self.model.train()
+        params = list(self.model.gs_module.parameters())
+        optimizer = torch.optim.Adam(params, lr=self.args.lr, weight_decay=self.args.weight_decay)
+        total_epochs = self.args.gs_pretrain_epochs
+
+        for epoch in range(total_epochs):
+            metric_logger = MetricLogger(delimiter="  ")
+            train_iterator = iter(self.train_loader)
+            total_step = len(self.train_loader)
+            for step in range(total_step):
+                batch = next(train_iterator)
+                labels = batch["label"].to(self.device)
+                _, recon = self.model.gs_forward(labels)
+                targets = self.model.one_hot_labels(labels)
+                loss = self.args.gs_loss_coef * F.mse_loss(recon, targets)
+
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+
+                metric_logger.update(loss_gs=loss.item())
+                metric_logger.log_every(
+                    step,
+                    total_step,
+                    0.0,
+                    0.0,
+                    20,
+                    "GS Epoch: [{}]".format(epoch),
+                )
+
+            if epoch % 20 == 0 or epoch == total_epochs - 1:
+                stats = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+                self.logger.info("GS pretrain epoch {} stats: {}".format(epoch, stats))
+
+        self.model.build_global_context(self.train_loader, self.device)
+        self.logger.info("FDI4S global context prepared.")
+
     def train(self):
         self.logger.info("Start training")
+        if self.args.model == "FDI4S":
+            self.pretrain_gs()
         start_time = time.time()
         for epoch in range(self.start_epoch, self.epochs):
             self.epoch = epoch
